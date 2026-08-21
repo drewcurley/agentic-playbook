@@ -1,0 +1,122 @@
+# Azure DevOps pipeline — server-side mirror of .githooks/.
+#
+# ACTIVE CI for the starter while GitHub Actions is not yet approved for general
+# org use. Code lives in GitHub; this runs in Azure DevOps via an Azure Pipelines
+# "GitHub" service connection. Same checks as scripts/ci-checks.sh — the GitHub
+# Actions equivalent is parked at .github/workflows-disabled/checks.yml.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚠️ REQUIRED SETUP PER REPO — the pipeline does NOT enforce anything until BOTH:
+#   1. This pipeline is created in your ADO project against the GitHub repo.
+#   2. PR validation is turned on. For GitHub-hosted repos, Azure DevOps IGNORES
+#      the `pr:` trigger below — you MUST add a Branch Policy → Build Validation
+#      on `main` (Project Settings → Repos → Branch policies) pointing at this
+#      pipeline, OR enable PR builds on the GitHub service connection. Without
+#      this, PRs get NO server-side gate and --no-verify fully bypasses the hooks.
+# A freshly-forked repo has NO enforced CI until the above is done. See AGENTS.md § 7.
+# ─────────────────────────────────────────────────────────────────────────────
+
+trigger:
+  branches:
+    include: [main, master]
+
+# NOTE: `pr:` is honored only for Azure Repos Git. For GitHub-hosted repos it is
+# IGNORED — configure PR validation as a branch policy (see header). Kept here for
+# the Azure-Repos case and as documentation of intent.
+pr:
+  branches:
+    include: ['*']
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  # Pin shellcheck so a new release can't fail an unrelated PR, and so the gate is
+  # reproducible. Bump deliberately. (ubuntu-latest ships shellcheck, but the
+  # version floats; pinning a downloaded binary removes that drift + network apt risk.)
+  SHELLCHECK_VERSION: v0.10.0
+
+jobs:
+  - job: scripts
+    displayName: shell scripts (lint + test)
+    steps:
+      - checkout: self
+        fetchDepth: 0
+      - script: |
+          set -e
+          # Pinned shellcheck binary (no apt; reproducible). Falls back to apt only
+          # if the download is unavailable, with a loud warning.
+          url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          if curl -sSfL "$url" | tar -xJ; then
+            sc="shellcheck-${SHELLCHECK_VERSION}/shellcheck"
+          else
+            echo "##[warning]Could not fetch pinned shellcheck; falling back to apt (version may drift)."
+            sudo apt-get update -qq && sudo apt-get install -y shellcheck
+            sc="shellcheck"
+          fi
+          "$sc" --version
+          "$sc" .githooks/pre-commit .githooks/commit-msg .githooks/pre-push \
+                scripts/*.sh scripts/test/*.sh
+        displayName: shellcheck hooks and scripts
+      - script: sh scripts/test/test-setup-workspace.sh
+        displayName: setup-workspace.sh fixture tests
+      - script: sh scripts/test/test-ci-checks.sh
+        displayName: ci-checks.sh fixture tests
+      - script: sh scripts/test/test-aggregate-docs.sh
+        displayName: aggregate-docs.sh fixture tests
+
+  - job: procedure
+    displayName: procedure checks
+    steps:
+      - checkout: self
+        fetchDepth: 0
+        persistCredentials: true
+
+      - script: |
+          set -e
+          # Resolve the diff range. For GitHub PR builds ADO may check out a synthetic
+          # merge ref; diffing against the TARGET branch tip (not HEAD~1) is robust to
+          # that — it scans exactly the PR's net changes regardless of checkout shape.
+          if [ -n "$(System.PullRequest.TargetBranch)" ]; then
+            target="$(System.PullRequest.TargetBranch)"
+            target="${target#refs/heads/}"
+            git fetch -q origin "$target"
+            base=$(git merge-base HEAD FETCH_HEAD)
+          else
+            # Branch/CI build: scan the pushed range if available, else the tip commit.
+            base="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+          fi
+          head="$(git rev-parse HEAD)"
+          echo "Diff range: $base...$head"
+          [ -n "$base" ] || { echo "##[error]Could not resolve diff base."; exit 1; }
+          sh scripts/ci-checks.sh "$base" "$head"
+        displayName: procedure checks (mirror of .githooks/)
+
+      # PR-body template check. The PR description lives in GitHub (not ADO), so it
+      # needs a GitHub token, not System.AccessToken. It is OPT-IN: set a pipeline
+      # secret variable GITHUB_TOKEN (repo scope) to enable it. Without the token
+      # the step is skipped with a notice rather than silently passing or failing —
+      # the per-PR template completeness is also checked by human review + the PR
+      # template itself, so this is a belt-and-suspenders gate.
+      - script: |
+          set -e
+          if [ "$(Build.Reason)" != "PullRequest" ]; then
+            echo "Not a PR build; skipping PR-body template check."; exit 0
+          fi
+          if [ -z "${GITHUB_TOKEN:-}" ]; then
+            echo "##[warning]GITHUB_TOKEN not set; skipping PR-body template check. Set it (repo scope) to enable."
+            exit 0
+          fi
+          pr="$(System.PullRequest.PullRequestNumber)"
+          repo="$(Build.Repository.Name)"   # owner/repo for GitHub-connected pipelines
+          body=$(curl -sSfL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                   -H "Accept: application/vnd.github+json" \
+                   "https://api.github.com/repos/${repo}/pulls/${pr}" | jq -r '.body // ""')
+          missing=0
+          for section in '## Task' '## Summary' '## Agent sign-offs' '## Human review' '## Risk' '## Redlines'; do
+            printf '%s' "$body" | grep -qF "$section" || { echo "##[error]PR body missing section: $section"; missing=1; }
+          done
+          [ "$missing" = "1" ] && exit 1 || true
+        displayName: pull request body must use the project template
+        env:
+          GITHUB_TOKEN: $(GITHUB_TOKEN)

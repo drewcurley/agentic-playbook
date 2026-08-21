@@ -1,0 +1,45 @@
+# Engineer-local Claude Code overrides (permissions, model, etc.)
+# Project-level defaults live in .claude/settings.json (committed).
+# Personal overrides go here and are NOT committed.
+.claude/settings.local.json
+
+# Common local env files — never commit secrets
+.env
+.env.local
+.env.*.local
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Build / dependency output (extend per stack)
+node_modules/
+dist/
+build/
+.next/
+.turbo/
+.cache/
+coverage/
+*.log
+
+# Python (if applicable)
+__pycache__/
+*.py[cod]
+.venv/
+.venv-*/
+venv/
+
+# Go (if applicable)
+bin/
+pkg/
+
+# Add stack-specific entries below as needed
+
+# Office temp/lock files
+~$*

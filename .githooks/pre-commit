@@ -1,0 +1,78 @@
+#!/usr/bin/env sh
+# Pre-commit hook for agentic_starter projects.
+# Enforces the procedure in AGENTS.md at commit time.
+# Install: scripts/setup-hooks.sh (sets core.hooksPath to .githooks/).
+# CI mirrors these checks server-side via scripts/ci-checks.sh (Azure DevOps
+# azure-pipelines.yml; GH Actions parked) — so --no-verify is not a viable bypass.
+
+set -e
+
+red()  { printf "\033[0;31m%s\033[0m\n" "$*" >&2; }
+yel()  { printf "\033[0;33m%s\033[0m\n" "$*" >&2; }
+fail() { red "pre-commit BLOCK: $*"; exit 1; }
+warn() { yel "pre-commit warn:  $*"; }
+
+# 1) Block direct commit to protected branches
+branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+case "$branch" in
+  main|master|production|release|trunk)
+    fail "Direct commit to '$branch' is not allowed. Create a feature branch (feat/<name>, fix/<name>, chore/<name>, refactor/<name>)."
+    ;;
+esac
+
+staged_files=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged_files" ] && exit 0
+
+added_lines=$(git diff --cached --diff-filter=ACMR -U0 | grep '^+' | grep -v '^+++' || true)
+
+# Is a path allowlisted for placeholders? (meta/template files — see .placeholder-allow)
+allow_file=".placeholder-allow"
+placeholder_allowed() {
+  [ -f "$allow_file" ] || return 1
+  while IFS= read -r pat; do
+    case "$pat" in ''|\#*) continue ;; esac
+    # shellcheck disable=SC2254  # glob match intended
+    case "$1" in $pat) return 0 ;; esac
+  done < "$allow_file"
+  return 1
+}
+
+# 2) Unreplaced [insert ... here] placeholders — per file, skipping allowlisted paths.
+placeholder_hit=0
+for f in $staged_files; do
+  placeholder_allowed "$f" && continue
+  added=$(git diff --cached --diff-filter=ACMR -U0 -- "$f" | grep '^+' | grep -v '^+++' || true)
+  if printf '%s\n' "$added" | grep -qE '\[insert [^]]+ here\]'; then
+    printf '%s\n' "$added" | grep -nE '\[insert [^]]+ here\]' | sed "s#^#$f: #" >&2
+    placeholder_hit=1
+  fi
+done
+[ "$placeholder_hit" = "1" ] && fail "Unreplaced [insert ... here] placeholder in staged content (not in an allowlisted template; see .placeholder-allow)."
+
+# 3) Basic secret scan on staged content
+scan() {
+  pattern="$1"
+  label="$2"
+  if printf '%s\n' "$added_lines" | grep -qE "$pattern"; then
+    printf '%s\n' "$added_lines" | grep -nE "$pattern" >&2
+    fail "Possible secret in staged content: $label. If false positive, sanitize the diff before committing."
+  fi
+}
+scan 'AKIA[0-9A-Z]{16}'                                'AWS access key ID'
+scan '-----BEGIN [A-Z ]*PRIVATE KEY-----'              'Private key block'
+scan 'gh[ps]_[A-Za-z0-9]{36,}'                         'GitHub token'
+scan 'xox[abprs]-[A-Za-z0-9-]+'                        'Slack token'
+scan 'sk-[A-Za-z0-9]{20,}'                             'OpenAI-style API key'
+scan 'sk-ant-[A-Za-z0-9_-]{20,}'                       'Anthropic API key'
+
+# 4) /docs/* changes — heads-up that commit-msg will require the assertion
+if printf '%s\n' "$staged_files" | grep -qE '^docs/'; then
+  warn "/docs/* change staged. commit-msg hook will require 'unanimous-consensus: T-NNN' in the message (per AGENTS.md hard gates)."
+fi
+
+# 5) tasks/INDEX.md is a derived view — discourage hand-edits
+if printf '%s\n' "$staged_files" | grep -qE '^tasks/INDEX\.md$'; then
+  warn "tasks/INDEX.md is regenerated from per-task frontmatter. Prefer regenerating rather than hand-editing."
+fi
+
+exit 0

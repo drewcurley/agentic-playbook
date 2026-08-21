@@ -1,0 +1,79 @@
+name: procedure-checks
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PARKED — GitHub Actions is not yet approved for general org use.
+#
+# This file lives under .github/workflows-DISABLED/ on purpose: GitHub only runs
+# workflows under .github/workflows/, so nothing here executes. Azure DevOps is
+# the active CI in the meantime (see /azure-pipelines.yml). Both call the same
+# scripts/ci-checks.sh, so they can't drift.
+#
+# TO RE-ENABLE when Actions is approved:
+#   git mv .github/workflows-disabled/checks.yml .github/workflows/checks.yml
+#   (and, if desired, re-enable the CodeQL default-setup in repo settings.)
+# Then retire or keep azure-pipelines.yml per your team's choice.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Server-side mirror of .githooks/. --no-verify on the client doesn't bypass these.
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  scripts:
+    name: shell scripts (lint + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck hooks and scripts
+        run: |
+          # shellcheck is preinstalled on ubuntu-latest runners.
+          shellcheck .githooks/pre-commit .githooks/commit-msg .githooks/pre-push \
+                     scripts/*.sh scripts/test/*.sh
+
+      - name: setup-workspace.sh fixture tests
+        run: sh scripts/test/test-setup-workspace.sh
+
+      - name: ci-checks.sh fixture tests
+        run: sh scripts/test/test-ci-checks.sh
+
+      - name: aggregate-docs.sh fixture tests
+        run: sh scripts/test/test-aggregate-docs.sh
+
+  procedure:
+    name: procedure checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine diff range
+        id: range
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "base=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Procedure checks (mirror of .githooks/)
+        run: sh scripts/ci-checks.sh "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+
+      - name: pull request body must use the project template
+        if: github.event_name == 'pull_request'
+        run: |
+          body=$(jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH")
+          missing=0
+          for section in '## Task' '## Summary' '## Agent sign-offs' '## Human review' '## Risk' '## Redlines'; do
+            if ! printf '%s' "$body" | grep -qF "$section"; then
+              echo "::error::pull request body is missing section: $section (use .github/pull_request_template.md)"
+              missing=1
+            fi
+          done
+          [ "$missing" = "1" ] && exit 1 || true

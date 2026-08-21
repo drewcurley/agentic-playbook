@@ -1,0 +1,41 @@
+# CODEOWNERS — required reviewers per area
+#
+# Syntax: <path-pattern>  @user-or-team  [@another-user]
+# More-specific patterns override less-specific ones (last match wins per GitHub).
+# Keep this file in sync with /docs/ownership.md.
+#
+# IMPORTANT: every entry below uses [insert ...] placeholders. Replace with real
+# GitHub handles / teams before this file does anything useful.
+
+# Repo-wide default — at least one human approver required on every PR
+*                               @[insert default-reviewers team here]
+
+# Project conventions and process
+/AGENTS.md                      @[insert tech-lead handle here]
+/CLAUDE.md                      @[insert tech-lead handle here]
+/.claude/                       @[insert tech-lead handle here] @[insert security-lead handle here]
+/.github/                       @[insert devops-team here]
+
+# Tasks ledger — DRI sets stay loose, but require any DRI to approve
+/tasks/                         @[insert default-reviewers team here]
+
+# Living docs — unanimous-consensus rule applies; CODEOWNERS adds a human review gate on top
+/docs/                          @[insert tech-lead handle here] @[insert security-lead handle here] @[insert ux-lead handle here]
+/docs/architecture.md           @[insert architect handle here] @[insert security-lead handle here]
+/docs/stack.md                  @[insert architect handle here]
+/docs/data-model.md             @[insert data-lead handle here]
+/docs/api.md                    @[insert backend-lead handle here]
+/docs/ux.md                     @[insert ux-lead handle here]
+/docs/testing.md                @[insert sdet-lead handle here]
+/docs/deployment.md             @[insert devops-team here]
+/docs/runbooks/                 @[insert devops-team here]
+/docs/decisions/                @[insert tech-lead handle here] @[insert architect handle here]
+/docs/ownership.md              @[insert tech-lead handle here]
+/docs/onboarding.md             @[insert tech-lead handle here] @[insert people-lead handle here]
+
+# Code areas (examples — replace with the real layout of your repo)
+# /apps/api/                    @[insert backend-team here]
+# /apps/web/                    @[insert frontend-team here]
+# /packages/db/                 @[insert data-team here]
+# /infra/                       @[insert devops-team here]
+# /.github/workflows/           @[insert devops-team here]
