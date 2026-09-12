@@ -1,5 +1,7 @@
 # Agentic Starter
 
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/drewcurley)
+
 A drop-in starter that standardizes how AI coding agents (Claude Code, Codex, Cursor, etc.) collaborate on a project. Works two ways:
 
 - **Single repo** — fork it; the fork *is* your project. `/docs`, `/tasks`, and code live together.
