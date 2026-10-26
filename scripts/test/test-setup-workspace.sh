@@ -143,6 +143,22 @@ run_sut "$root" >/dev/null                                 # re-run must re-fix
 if [ "$(hookspath "$root/web")" = ".githooks" ]; then ok "re-run is idempotent and re-verifies governance"; else bad "re-run did not restore governance"; fi
 rm -rf "$root"
 
+# 15) Every CI file/script the closing guidance names exists in the playbook (it once
+#     pointed at .github/workflows/checks.yml after that file was parked — T-012).
+root=$(make_workspace); make_repo "$root" web
+write_manifest "$root" <<'EOF'
+| dir | role | url | branch | contracts |
+|-----|------|-----|--------|-----------|
+| `web` | f | u | main | x |
+EOF
+out=$(run_sut "$root")
+named=$(printf '%s\n' "$out" | grep -oE '[A-Za-z0-9_./-]+\.(yml|yaml|sh)' || true)
+missing_paths=''
+for p in $named; do [ -f "$playbook_src/$p" ] || missing_paths="$missing_paths $p"; done
+if [ -n "$named" ] && [ -z "$missing_paths" ]; then ok "closing guidance names only CI files that exist"
+else bad "closing guidance names missing CI file(s):${missing_paths:- none named}"; fi
+rm -rf "$root"
+
 # ---------------------------------------------------------------------------
 echo
 echo "Results: $pass passed, $fail failed"
