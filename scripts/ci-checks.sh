@@ -48,9 +48,15 @@ done
 
 # --- 2) Basic secret scan ----------------------------------------------------
 secret_patterns='AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[ps]_[A-Za-z0-9]{36,}|xox[abprs]-[A-Za-z0-9-]+|sk-[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}'
-if printf '%s\n' "$added" | grep -qE "$secret_patterns"; then
-  err "Possible secret detected in diff. Sanitize before merge."
-fi
+# `--` guards against a pattern parsed as a grep option; grep exit >=2 is a
+# scanner error, not "no match" — fail closed (mirrors scan() in pre-commit).
+secret_rc=0
+printf '%s\n' "$added" | grep -qE -- "$secret_patterns" || secret_rc=$?
+case "$secret_rc" in
+  0) err "Possible secret detected in diff. Sanitize before merge." ;;
+  1) ;;
+  *) err "Secret scanner error (grep exit $secret_rc). Failing closed: diff was not scanned." ;;
+esac
 
 # --- 3) Every non-merge commit references a Task ID --------------------------
 for sha in $(git log --format=%H "$base..$head"); do

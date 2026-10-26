@@ -50,13 +50,22 @@ done
 [ "$placeholder_hit" = "1" ] && fail "Unreplaced [insert ... here] placeholder in staged content (not in an allowlisted template; see .placeholder-allow)."
 
 # 3) Basic secret scan on staged content
+#    `--` stops a pattern that starts with '-' (the private-key one) being parsed
+#    as a grep option. grep exit >=2 is a scanner error, not "no match" — fail
+#    closed so a broken scan can never silently pass a commit.
 scan() {
   pattern="$1"
   label="$2"
-  if printf '%s\n' "$added_lines" | grep -qE "$pattern"; then
-    printf '%s\n' "$added_lines" | grep -nE "$pattern" >&2
-    fail "Possible secret in staged content: $label. If false positive, sanitize the diff before committing."
-  fi
+  rc=0
+  printf '%s\n' "$added_lines" | grep -qE -- "$pattern" || rc=$?
+  case "$rc" in
+    0)
+      printf '%s\n' "$added_lines" | grep -nE -- "$pattern" >&2
+      fail "Possible secret in staged content: $label. If false positive, sanitize the diff before committing."
+      ;;
+    1) ;;
+    *) fail "Secret scanner error (grep exit $rc) on pattern: $label. Refusing to commit unscanned content." ;;
+  esac
 }
 scan 'AKIA[0-9A-Z]{16}'                                'AWS access key ID'
 scan '-----BEGIN [A-Z ]*PRIVATE KEY-----'              'Private key block'

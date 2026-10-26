@@ -99,6 +99,37 @@ unanimous-consensus: T-107" )
 rc=$(run_checks "$r"); expect_rc "$rc" 0 "docs change with consensus passes"
 rm -rf "$r"
 
+# 8) Private-key block fails. Its pattern starts with '-' (which silently disabled
+#    the pre-commit scan, T-012); assembled at runtime for the same reason as 4).
+r=$(make_repo)
+d=-----
+( cd "$r" && printf '%sBEGIN RSA PRIVATE KEY%s\n' "$d" "$d" >> file.txt && git add -A && git commit -qm "chore: key T-108" )
+err=$( cd "$r" \
+  && base=$(git rev-list --max-parents=0 HEAD) && head=$(git rev-parse HEAD) \
+  && sh scripts/ci-checks.sh "$base" "$head" 2>&1 >/dev/null ); rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$err" | grep -qF "Possible secret detected"; then ok "private key block fails"
+else bad "private key block fails (rc=$rc, stderr: $err)"; fi
+rm -rf "$r"
+
+# 9) Secret scan fails closed: a grep that errors (exit 2) on the secret pattern
+#    must fail the check, not read as "no match".
+r=$(make_repo)
+real_grep=$(command -v grep)
+mkdir -p "$r/.stub"
+cat > "$r/.stub/grep" <<EOF
+#!/bin/sh
+for a in "\$@"; do case "\$a" in *PRIVATE*) echo "grep: stub error" >&2; exit 2 ;; esac; done
+exec "$real_grep" "\$@"
+EOF
+chmod +x "$r/.stub/grep"
+( cd "$r" && echo "clean line" >> file.txt && git add file.txt && git commit -qm "feat: clean T-109" )
+err=$( cd "$r" \
+  && base=$(git rev-list --max-parents=0 HEAD) && head=$(git rev-parse HEAD) \
+  && PATH="$r/.stub:$PATH" sh scripts/ci-checks.sh "$base" "$head" 2>&1 >/dev/null ); rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$err" | grep -qF "Secret scanner error"; then ok "grep error fails closed"
+else bad "grep error fails closed (rc=$rc, stderr: $err)"; fi
+rm -rf "$r"
+
 echo
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
