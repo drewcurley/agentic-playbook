@@ -47,7 +47,7 @@
 | [T-006](./T-006.md) | Shippable: adoption runbook + branch protection | devops | — | chore/shippable-adoption | #5 | — |
 | [T-007](./T-007.md) | Overview deck + generator | review-coordinator | — | chore/overview-deck | #6 | — |
 | [T-008](./T-008.md) | Doc aggregation (playbook golden source) | devops | — | feat/docs-aggregation | #7 | — |
-| [T-012](./T-012.md) | Fix pre-commit private-key scan silently skipped | backend-engineer | — | fix/precommit-dash-pattern | — | tasks/T-012.md#review-artifact |
+| [T-012](./T-012.md) | Fix pre-commit private-key scan silently skipped | backend-engineer | — | fix/precommit-dash-pattern | #3 | tasks/T-012.md#review-artifact |
 
 ## Cancelled / Superseded
 
