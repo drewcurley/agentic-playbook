@@ -6,7 +6,12 @@
 
 | ID | Title | Owner | Tier | State | Branch | PR |
 |----|-------|-------|------|-------|--------|----|
-| _none_ | | | | | | |
+| [T-009](./T-009.md) | Executable specs + evidence gates (SDD Tier 1) | review-coordinator | — | in-progress | chore/sdd-tier1-plan | — |
+| [T-009.1](./T-009.1.md) | `verify` entrypoint, pinned toolchain, shared helpers | devops | — | in-review | chore/sdd-tier1-plan | — |
+| [T-009.2](./T-009.2.md) | Machine-readable contracts, drift + breaking-change gates | backend-engineer | — | in-review | chore/sdd-tier1-plan | — |
+| [T-009.3](./T-009.3.md) | AC IDs traced to passing tests | sdet | — | in-review | chore/sdd-tier1-plan | — |
+| [T-009.4](./T-009.4.md) | Review evidence bound to the diff | review-coordinator | — | in-review | chore/sdd-tier1-plan | — |
+| [T-009.5](./T-009.5.md) | Independent agent review in CI | architect | — | in-review | chore/sdd-tier1-plan | — |
 
 ## Backlog — Tier 1 (blocks feature work)
 
@@ -27,6 +32,13 @@
 | [T-001.13](./T-001.13.md) | Tier 1 review + collect 9 sign-offs | review-coordinator | proposed |
 | [T-001.14](./T-001.14.md) | Write `ownership.md` (Directly Responsible Individual map) | architect | proposed |
 | [T-001.15](./T-001.15.md) | Write `onboarding.md` | analyst | proposed |
+
+## Backlog — other
+
+| ID | Title | Owner | State |
+|----|-------|-------|-------|
+| [T-010](./T-010.md) | Ledger and docs housekeeping | review-coordinator | proposed |
+| [T-011](./T-011.md) | Migration guide for pre-T-009 forks | devops | proposed |
 
 ## Backlog — Tier 2 (must complete by end of first feature sprint)
 
