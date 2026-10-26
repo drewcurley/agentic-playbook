@@ -6,7 +6,7 @@
 
 | ID | Title | Owner | Tier | State | Branch | PR |
 |----|-------|-------|------|-------|--------|----|
-| [T-009](./T-009.md) | Executable specs + evidence gates (SDD Tier 1) | review-coordinator | — | in-progress | chore/sdd-tier1-plan | — |
+| [T-009](./T-009.md) | Executable specs + evidence gates (SDD Tier 1) | review-coordinator | — | in-progress | chore/sdd-tier1-plan | #2 |
 | [T-009.1](./T-009.1.md) | `verify` entrypoint, pinned toolchain, shared helpers | devops | — | in-review | chore/sdd-tier1-plan | — |
 | [T-009.2](./T-009.2.md) | Machine-readable contracts, drift + breaking-change gates | backend-engineer | — | in-review | chore/sdd-tier1-plan | — |
 | [T-009.3](./T-009.3.md) | AC IDs traced to passing tests | sdet | — | in-review | chore/sdd-tier1-plan | — |
