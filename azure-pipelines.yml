@@ -62,6 +62,10 @@ jobs:
         displayName: setup-workspace.sh fixture tests
       - script: sh scripts/test/test-ci-checks.sh
         displayName: ci-checks.sh fixture tests
+      - script: sh scripts/test/test-pre-commit.sh
+        displayName: pre-commit hook fixture tests
+      - script: sh scripts/test/test-setup-hooks.sh
+        displayName: setup-hooks.sh fixture tests
       - script: sh scripts/test/test-aggregate-docs.sh
         displayName: aggregate-docs.sh fixture tests
 

@@ -40,6 +40,12 @@ jobs:
       - name: ci-checks.sh fixture tests
         run: sh scripts/test/test-ci-checks.sh
 
+      - name: pre-commit hook fixture tests
+        run: sh scripts/test/test-pre-commit.sh
+
+      - name: setup-hooks.sh fixture tests
+        run: sh scripts/test/test-setup-hooks.sh
+
       - name: aggregate-docs.sh fixture tests
         run: sh scripts/test/test-aggregate-docs.sh
 
