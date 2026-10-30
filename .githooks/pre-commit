@@ -20,10 +20,19 @@ case "$branch" in
     ;;
 esac
 
-staged_files=$(git diff --cached --name-only --diff-filter=ACMR)
+# Fail closed on git errors (T-013): each git call is captured on its own and its
+# status checked. In `git diff | grep ... || true` the status is grep's, so a git
+# error used to read as an empty diff and pass every gate. The filter is sed, which
+# exits 0 on no match, so no `|| true` is needed.
+added_only() { sed -n '/^+++/d;/^+/p'; }
+unchecked="Refusing to commit content that was not checked."
+
+staged_files=$(git diff --cached --name-only --diff-filter=ACMR) \
+  || fail "git diff --cached --name-only failed. $unchecked"
 [ -z "$staged_files" ] && exit 0
 
-added_lines=$(git diff --cached --diff-filter=ACMR -U0 | grep '^+' | grep -v '^+++' || true)
+staged_diff=$(git diff --cached --diff-filter=ACMR -U0) || fail "git diff --cached failed. $unchecked"
+added_lines=$(printf '%s\n' "$staged_diff" | added_only) || fail "Filtering the staged diff failed. $unchecked"
 
 # Is a path allowlisted for placeholders? (meta/template files — see .placeholder-allow)
 allow_file=".placeholder-allow"
@@ -41,11 +50,18 @@ placeholder_allowed() {
 placeholder_hit=0
 for f in $staged_files; do
   placeholder_allowed "$f" && continue
-  added=$(git diff --cached --diff-filter=ACMR -U0 -- "$f" | grep '^+' | grep -v '^+++' || true)
-  if printf '%s\n' "$added" | grep -qE '\[insert [^]]+ here\]'; then
-    printf '%s\n' "$added" | grep -nE '\[insert [^]]+ here\]' | sed "s#^#$f: #" >&2
-    placeholder_hit=1
-  fi
+  f_diff=$(git diff --cached --diff-filter=ACMR -U0 -- "$f") || fail "git diff --cached -- '$f' failed. $unchecked"
+  added=$(printf '%s\n' "$f_diff" | added_only) || fail "Filtering the staged diff of '$f' failed. $unchecked"
+  rc=0
+  printf '%s\n' "$added" | grep -qE '\[insert [^]]+ here\]' || rc=$?
+  case "$rc" in
+    0)
+      printf '%s\n' "$added" | grep -nE '\[insert [^]]+ here\]' | sed "s#^#$f: #" >&2
+      placeholder_hit=1
+      ;;
+    1) ;;
+    *) fail "Placeholder scanner error (grep exit $rc) on '$f'. $unchecked" ;;
+  esac
 done
 [ "$placeholder_hit" = "1" ] && fail "Unreplaced [insert ... here] placeholder in staged content (not in an allowlisted template; see .placeholder-allow)."
 

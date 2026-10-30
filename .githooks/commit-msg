@@ -24,7 +24,12 @@ fi
 # 2) If commit touches AUTHORED /docs/*, require unanimous-consensus assertion.
 #    docs/repos/** is a generated mirror (scripts/aggregate-docs.sh) already gated
 #    in its source repo — exempt it, else every rollup refresh needs an assertion.
-docs_touched=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^docs/' | grep -vE '^docs/repos/' || true)
+#    A git error fails closed (T-013): captured on its own and checked, since in
+#    `git diff | grep ... || true` it used to read as "no /docs change".
+staged_files=$(git diff --cached --name-only --diff-filter=ACMR) \
+  || fail "git diff --cached --name-only failed, so the /docs consensus check could not run. Refusing to commit."
+docs_touched=$(printf '%s\n' "$staged_files" | sed -n '/^docs\/repos\//d;/^docs\//p') \
+  || fail "Filtering the staged file list failed, so the /docs consensus check could not run. Refusing to commit."
 if [ -n "$docs_touched" ]; then
   if ! printf '%s' "$msg" | grep -qiE 'unanimous-consensus:[[:space:]]*T-[0-9]+(\.[0-9]+)?'; then
     fail "Authored /docs/* change requires 'unanimous-consensus: T-NNN' in the commit message certifying all 9 agents signed off (AGENTS.md hard gate)."
