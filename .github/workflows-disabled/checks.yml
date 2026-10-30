@@ -43,6 +43,12 @@ jobs:
       - name: pre-commit hook fixture tests
         run: sh scripts/test/test-pre-commit.sh
 
+      - name: commit-msg hook fixture tests
+        run: sh scripts/test/test-commit-msg.sh
+
+      - name: ci-base.sh fixture tests
+        run: sh scripts/test/test-ci-base.sh
+
       - name: setup-hooks.sh fixture tests
         run: sh scripts/test/test-setup-hooks.sh
 
@@ -59,17 +65,25 @@ jobs:
 
       - name: Determine diff range
         id: range
+        env:
+          BEFORE: ${{ github.event.before }}
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
             echo "head=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
           else
-            echo "base=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+            # A branch's first push has before=0000…; ci-base.sh maps that to HEAD~1,
+            # or the empty tree for a root commit (ci-checks.sh would rightly fail
+            # closed on the zeros — T-013).
+            base=$(sh scripts/ci-base.sh "$BEFORE")
+            echo "base=$base" >> "$GITHUB_OUTPUT"
             echo "head=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Procedure checks (mirror of .githooks/)
-        run: sh scripts/ci-checks.sh "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+        run: |
+          echo "Diff range: ${{ steps.range.outputs.base }}...${{ steps.range.outputs.head }}"
+          sh scripts/ci-checks.sh "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
 
       - name: pull request body must use the project template
         if: github.event_name == 'pull_request'

@@ -48,6 +48,7 @@
 | [T-007](./T-007.md) | Overview deck + generator | review-coordinator | — | chore/overview-deck | #6 | — |
 | [T-008](./T-008.md) | Doc aggregation (playbook golden source) | devops | — | feat/docs-aggregation | #7 | — |
 | [T-012](./T-012.md) | Fix pre-commit private-key scan silently skipped | backend-engineer | — | fix/precommit-dash-pattern | #3 | tasks/T-012.md#review-artifact |
+| [T-013](./T-013.md) | Fail closed when git diff/log errors in the hooks and ci-checks.sh | backend-engineer | — | fix/diff-fail-closed | — | tasks/T-013.md#review-artifact |
 
 ## Cancelled / Superseded
 
