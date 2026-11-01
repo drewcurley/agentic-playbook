@@ -26,9 +26,11 @@ fi
 #    in its source repo — exempt it, else every rollup refresh needs an assertion.
 #    A git error fails closed (T-013): captured on its own and checked, since in
 #    `git diff | grep ... || true` it used to read as "no /docs change".
-staged_files=$(git diff --cached --name-only --diff-filter=ACMR) \
+staged_files=$(git -c core.quotePath=false diff --cached --no-renames --name-only --diff-filter=ACMR) \
   || fail "git diff --cached --name-only failed, so the /docs consensus check could not run. Refusing to commit."
-docs_touched=$(printf '%s\n' "$staged_files" | sed -n '/^docs\/repos\//d;/^docs\//p') \
+#    Unquoted names, plus any git still quotes ("docs/a\tb.md"), so quoting can't
+#    dodge the gate (T-014).
+docs_touched=$(printf '%s\n' "$staged_files" | sed -n '/^"\{0,1\}docs\/repos\//d;/^"\{0,1\}docs\//p') \
   || fail "Filtering the staged file list failed, so the /docs consensus check could not run. Refusing to commit."
 if [ -n "$docs_touched" ]; then
   if ! printf '%s' "$msg" | grep -qiE 'unanimous-consensus:[[:space:]]*T-[0-9]+(\.[0-9]+)?'; then

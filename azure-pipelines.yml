@@ -68,6 +68,8 @@ jobs:
         displayName: commit-msg hook fixture tests
       - script: sh scripts/test/test-ci-base.sh
         displayName: ci-base.sh fixture tests
+      - script: sh scripts/test/test-ci-pr-checks.sh
+        displayName: ci-pr-checks.sh fixture tests
       - script: sh scripts/test/test-setup-hooks.sh
         displayName: setup-hooks.sh fixture tests
       - script: sh scripts/test/test-aggregate-docs.sh
@@ -82,24 +84,46 @@ jobs:
 
       - script: |
           set -e
-          # Resolve the diff range. For GitHub PR builds ADO may check out a synthetic
-          # merge ref; diffing against the TARGET branch tip (not HEAD~1) is robust to
-          # that — it scans exactly the PR's net changes regardless of checkout shape.
+          head=$(git rev-parse --verify 'HEAD^{commit}')
           if [ -n "$(System.PullRequest.TargetBranch)" ]; then
+            # PR build. ADO may check out a synthetic merge ref; the gate diffs from
+            # the merge base with the TARGET tip, so the checkout shape doesn't matter.
             target="$(System.PullRequest.TargetBranch)"
             target="${target#refs/heads/}"
             git fetch -q origin "$target"
-            base=$(git merge-base HEAD FETCH_HEAD)
+            target_sha=$(git rev-parse --verify 'FETCH_HEAD^{commit}')
+            echo "PR build: target $target ($target_sha), head $head"
+            # BEGIN trusted-gate (T-014). Keep identical in azure-pipelines.yml and
+            # .github/workflows-disabled/checks.yml; scripts/test/test-ci-pr-checks.sh runs it.
+            # Takes ci-pr-checks.sh from the TARGET branch, so a PR can't swap the gate out by
+            # editing it; the PR's own copy runs only while the target has none (bootstrap).
+            warn='WARNING:'
+            [ -z "${TF_BUILD:-}" ] || warn='##[warning]'
+            [ -z "${GITHUB_ACTIONS:-}" ] || warn='::warning::'
+            runner=$(mktemp)
+            trap 'rm -f "$runner"' EXIT
+            runner_entry=$(git ls-tree --full-tree "$target_sha" -- scripts/ci-pr-checks.sh)
+            case "$runner_entry" in
+              '100644 blob '*|'100755 blob '*)
+                echo "Gate runner: the target's scripts/ci-pr-checks.sh ($runner_entry)"
+                git cat-file blob "$target_sha:scripts/ci-pr-checks.sh" > "$runner" ;;
+              '')
+                echo "$warn the target branch has no scripts/ci-pr-checks.sh; running this PR's copy (bootstrap only)."
+                cp scripts/ci-pr-checks.sh "$runner" ;;
+              *)
+                echo "$warn the target's scripts/ci-pr-checks.sh is not a regular file. Failing closed."
+                exit 1 ;;
+            esac
+            sh "$runner" "$target_sha" "$head"
+            # END trusted-gate
           else
-            # Branch/CI build: scan the tip commit (HEAD~1...HEAD, or the whole tree
-            # for a root commit). ci-base.sh fails rather than fall back to
-            # HEAD...HEAD, which would scan nothing (T-013).
+            # Branch/CI build (already merged): scan the tip commit (HEAD~1...HEAD, or
+            # the whole tree for a root commit). ci-base.sh fails rather than fall
+            # back to HEAD...HEAD, which would scan nothing (T-013).
             base=$(sh scripts/ci-base.sh)
+            echo "Diff range: $base...$head"
+            sh scripts/ci-checks.sh "$base" "$head"
           fi
-          head="$(git rev-parse HEAD)"
-          echo "Diff range: $base...$head"
-          [ -n "$base" ] || { echo "##[error]Could not resolve diff base."; exit 1; }
-          sh scripts/ci-checks.sh "$base" "$head"
         displayName: procedure checks (mirror of .githooks/)
 
       # PR-body template check. The PR description lives in GitHub (not ADO), so it
