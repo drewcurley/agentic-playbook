@@ -14,7 +14,18 @@
 /AGENTS.md                      @[insert tech-lead handle here]
 /CLAUDE.md                      @[insert tech-lead handle here]
 /.claude/                       @[insert tech-lead handle here] @[insert security-lead handle here]
-/.github/                       @[insert devops-team here]
+/.github/                       @[insert devops-team here] @[insert security-lead handle here]
+
+# Gate files (T-014). A PR build runs the PR's own pipeline YAML, so these files
+# define the check the PR is judged by: changing them needs the people who own the
+# gates. Every line names both owners (last match wins, so no line may drop one).
+# `*` above already requires a default reviewer; this routes gate changes further.
+/azure-pipelines.yml            @[insert devops-team here] @[insert security-lead handle here]
+/scripts/ci-*.sh                @[insert devops-team here] @[insert security-lead handle here]
+/.githooks/                     @[insert devops-team here] @[insert security-lead handle here]
+/.placeholder-allow             @[insert devops-team here] @[insert security-lead handle here]
+/.gitattributes                 @[insert devops-team here] @[insert security-lead handle here]
+/.github/CODEOWNERS             @[insert devops-team here] @[insert security-lead handle here]
 
 # Tasks ledger — DRI sets stay loose, but require any DRI to approve
 /tasks/                         @[insert default-reviewers team here]

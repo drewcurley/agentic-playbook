@@ -19,15 +19,17 @@ sut="${PRE_COMMIT_HOOK:-$playbook_src/.githooks/pre-commit}"
 case "$sut" in /*) ;; *) sut="$PWD/$sut" ;; esac
 SH="${SH:-sh}"
 
-# Ignore the runner's own git config (hooksPath, default branch, signing).
-GIT_CONFIG_GLOBAL=/dev/null
-GIT_CONFIG_NOSYSTEM=1
-export GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM
-unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
-
 # Stubs and scratch files live outside the fixture repos.
 tmp=$(mktemp -d 2>/dev/null || mktemp -d -t pc)
 trap 'rm -rf "$tmp"' EXIT
+
+# Ignore the runner's own git config (hooksPath, default branch, signing),
+# attributes, and any inherited repo pointers.
+mkdir -p "$tmp/home" "$tmp/xdg"
+HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/xdg"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1
+export HOME XDG_CONFIG_HOME GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM GIT_ATTR_NOSYSTEM
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_EXTERNAL_DIFF
 
 pass=0
 fail=0
@@ -164,11 +166,11 @@ expect_stub_block() {
 }
 
 # 6) A git error on any staged-content read blocks instead of reading as empty.
-r=$(make_repo); expect_stub_block "$r" "key=$aws_key" git 'diff --cached --name-only*' \
+r=$(make_repo); expect_stub_block "$r" "key=$aws_key" git '*--name-only*' \
   "git diff --cached --name-only failed" "staged file list error fails closed"; rm -rf "$r"
-r=$(make_repo); expect_stub_block "$r" "key=$aws_key" git 'diff --cached --diff-filter=ACMR -U0' \
+r=$(make_repo); expect_stub_block "$r" "key=$aws_key" git 'diff --cached *-U0' \
   "git diff --cached failed" "staged diff error fails closed (secret not missed)"; rm -rf "$r"
-r=$(make_repo); expect_stub_block "$r" "$placeholder" git 'diff --cached --diff-filter=ACMR -U0 -- *' \
+r=$(make_repo); expect_stub_block "$r" "$placeholder" git '*diff --cached *-U0 -- *' \
   "git diff --cached -- 'file.txt' failed" "per-file diff error fails closed (placeholder not missed)"; rm -rf "$r"
 r=$(make_repo); expect_stub_block "$r" "key=$aws_key" sed '-n /^+++/*' \
   "Filtering the staged diff failed" "diff filter error fails closed"; rm -rf "$r"
@@ -185,6 +187,72 @@ if [ "$rc" -eq 0 ] && [ -z "$err" ]; then ok "initial commit (no HEAD) clean cha
 else bad "initial commit (no HEAD) clean change passes (rc=$rc, stderr: $err)"; fi
 rm -rf "$r"
 new_repo; expect_block "$r" "key=$aws_key" "AWS access key ID" "initial commit (no HEAD) secret blocks"; rm -rf "$r"
+
+# 8) Nothing can hide staged content from the scans (T-014): .gitattributes -diff /
+#    binary / textconv, an external diff, a NUL byte. Each case first proves a plain
+#    `git diff --cached` really hides the secret, so it can't pass vacuously.
+# hidden_block <root> <description> [VAR=value]: stage everything, expect the hook
+# (with the optional env assignment) to block the AWS key.
+hidden_block() {
+  ( cd "$1" && git add -A )
+  plain=$( cd "$1" && env ${3:+"$3"} git diff --cached -U0 2>&1 ); prc=$?
+  if [ "$prc" -ne 0 ] || printf '%s' "$plain" | grep -aq AKIA; then bad "$2: precondition (plain git diff must succeed and hide the secret; rc=$prc)"; fi
+  err=$( cd "$1" && env ${3:+"$3"} "$SH" "$sut" 2>&1 >/dev/null ); rc=$?
+  if [ "$rc" -eq 1 ] && printf '%s' "$err" | grep -aqF "AWS access key ID"; then ok "$2 can't hide a staged secret"
+  else bad "$2 can't hide a staged secret (rc=$rc, stderr: $err)"; fi
+  rm -rf "$1"
+}
+r=$(make_repo); printf 's.cfg -diff\n' > "$r/.gitattributes"; printf 'key=%s\n' "$aws_key" > "$r/s.cfg"
+hidden_block "$r" ".gitattributes -diff"
+r=$(make_repo); printf 's.cfg binary\n' > "$r/.gitattributes"; printf 'key=%s\n' "$aws_key" > "$r/s.cfg"
+hidden_block "$r" ".gitattributes binary"
+r=$(make_repo); printf 's.cfg diff=hide\n' > "$r/.gitattributes"; printf 'key=%s\n' "$aws_key" > "$r/s.cfg"
+( cd "$r" && git config diff.hide.textconv true ); hidden_block "$r" "a textconv driver"
+r=$(make_repo); printf 'key=%s\n' "$aws_key" > "$r/s.cfg"
+hidden_block "$r" "an external diff (GIT_EXTERNAL_DIFF)" GIT_EXTERNAL_DIFF=true
+r=$(make_repo); printf 'x\000y\nkey=%s\n' "$aws_key" > "$r/s.dat"
+hidden_block "$r" "a NUL byte"
+
+# 9) A binary file under a UTF-8 locale still commits (BSD sed/grep reject invalid
+#    UTF-8 unless the hook runs with LC_ALL=C). Only meaningful on macOS/BSD: GNU
+#    sed never fails on these bytes, so on Linux CI this passes regardless.
+r=$(make_repo); printf 'img\377\376\001\n' > "$r/logo.png"; ( cd "$r" && git add logo.png )
+err=$( cd "$r" && LC_ALL=C.UTF-8 "$SH" "$sut" 2>&1 >/dev/null ); rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$err" ]; then ok "binary file under a UTF-8 locale commits"
+else bad "binary file under a UTF-8 locale commits (rc=$rc, stderr: $err)"; fi
+rm -rf "$r"
+
+# 10) Placeholders: a -diff file, a rename out of an allowlisted path, and odd
+#     filenames (glob, pathspec magic, non-ASCII, space) are all still checked.
+# stage_block <root> <needle> <description>: stage everything; hook exits 1 naming <needle>.
+stage_block() {
+  ( cd "$1" && git add -A )
+  err=$( cd "$1" && "$SH" "$sut" 2>&1 >/dev/null ); rc=$?
+  if [ "$rc" -eq 1 ] && printf '%s' "$err" | grep -aqF -- "$2"; then ok "$3"
+  else bad "$3 (rc=$rc, stderr: $err)"; fi
+  [ ! -e "$1/PWNED" ] || : > "$tmp/PWNED"   # surface a payload that ran in the repo
+  rm -rf "$1"
+}
+# allow_repo: make_repo plus an allowlisted, committed README.md. Sets $r.
+allow_repo() {
+  r=$(make_repo); printf 'README.md\n' > "$r/.placeholder-allow"; echo readme > "$r/README.md"
+  ( cd "$r" && git add -A && git commit -qm "chore: allowlist T-010" )
+}
+r=$(make_repo); printf 'x.cfg -diff\n' > "$r/.gitattributes"; printf '%s\n' "$placeholder" > "$r/x.cfg"
+stage_block "$r" "x.cfg: " "placeholder in a -diff file blocks"
+allow_repo; printf '%s\n' "$placeholder" > "$r/README.md"; ( cd "$r" && git commit -qam "docs: ph T-011" && git mv README.md notes.md )
+stage_block "$r" "notes.md: " "rename out of an allowlisted path blocks"
+allow_repo; printf '%s\n' "$placeholder" > "$r/READM[E].md"; stage_block "$r" "READM[E].md: " "glob-like filename isn't expanded to an allowlisted file"
+allow_repo; printf '%s\n' "$placeholder" > "$r/:(top)x.md";  stage_block "$r" ":(top)x.md: " "pathspec-magic filename is read literally"
+allow_repo; printf '%s\n' "$placeholder" > "$r/$(printf 'caf\303\251.md')"; stage_block "$r" "Unreplaced" "non-ASCII filename is checked"
+allow_repo; printf '%s\n' "$placeholder" > "$r/a b.md";      stage_block "$r" "a b.md: " "filename with a space is checked whole"
+allow_repo; printf '%s\n' "$placeholder" > "$r/$(printf 'a\tb.md')"; stage_block "$r" "Unusual filename" "filename git must quote blocks"
+# A filename is never code: under GNU sed, `#;e cmd;#` in an interpolated sed script
+# runs cmd. Expect the placeholder line reported verbatim and no PWNED file.
+allow_repo; printf '%s\n' "$placeholder" > "$r/x#;e touch PWNED;#.md"
+stage_block "$r" "x#;e touch PWNED;#.md: 1:+use [" "filename with sed syntax is reported, not run"
+if [ ! -e "$tmp/PWNED" ] && [ ! -e PWNED ]; then ok "filename with sed syntax runs nothing"
+else bad "filename with sed syntax ran a command (PWNED exists)"; fi
 
 echo
 echo "Results: $pass passed, $fail failed"

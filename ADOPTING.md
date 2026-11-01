@@ -41,6 +41,14 @@ active CI is Azure DevOps:
    → Build Validation** on `main`, pointing at the pipeline. Without this, PRs get
    no CI and the gate never runs.
 3. (Optional) set a `GITHUB_TOKEN` pipeline secret to enable the PR-body template check.
+4. **Land `scripts/` on `main` before requiring the check.** A PR build runs the
+   gate from the *target* branch (`scripts/ci-pr-checks.sh`, T-014), so it fails
+   closed if `main` has no `scripts/ci-checks.sh` yet. Merge the starter's files
+   first, then turn on Build Validation.
+5. **Fork PRs** (pipeline → Triggers → Pull request validation): leave **"Make
+   secrets available to builds of forks" off** and require a team member's comment
+   before a fork build runs. The checkout uses `persistCredentials: true`, so a
+   build's job token is visible to the pipeline YAML — which a PR can edit.
 
 > If/when GitHub Actions is approved for your org, instead do:
 > `git mv .github/workflows-disabled/checks.yml .github/workflows/` and re-enable
@@ -66,6 +74,31 @@ Branch protection is what makes every other gate real. Configure on GitHub:
 > and turn on "Require review from Code Owners"** — that restores the human peer-review
 > gate. This is the one protection setting that scales with team size; everything else
 > stays the same.
+
+> **What CI can't protect on its own.** A PR build runs the PR's own pipeline YAML,
+> and no file in the repo can stop a PR from editing it. The gate logic and the
+> placeholder allowlist come from `main` (`scripts/ci-pr-checks.sh`), so weakening
+> them takes a visible edit to the YAML or `scripts/ci-*.sh` — and `CODEOWNERS`
+> routes those gate files to the devops team + security lead. That only binds once
+> **"Require review from Code Owners"** is on; a solo repo relies on its one
+> maintainer reading gate-file diffs. Consequences to know:
+> - A change to `.placeholder-allow` or `scripts/ci-checks.sh` takes effect on the
+>   **next** PR, not the one that makes it. Land an allowlist entry before the file
+>   that needs it.
+> - Once you've filled in `.github/CODEOWNERS`, remove its line from
+>   `.placeholder-allow`, so a stray placeholder there gets caught.
+>
+> - The gates don't see Git LFS content (only the pointer is in git) or submodule
+>   content (only the commit SHA); scan those where they live.
+>
+> **Break-glass (the gate on `main` itself is broken).** Because PRs are judged by
+> `main`'s gate, a PR that fixes a broken gate can be blocked by it. An admin
+> temporarily removes the required check — in GitHub (Settings → Branches) **and**
+> in Azure DevOps (Branch policies → Build Validation), wherever it is required —
+> runs the *fixed* `scripts/ci-checks.sh <base> <head>` by hand against the fix PR
+> and pastes the output into the fix's task file, merges the fix PR with the usual
+> reviews, and restores the check immediately. Record who, when and why in that
+> task file. Never bypass for anything else.
 
 > ⚠️ **Order matters / don't brick the repo:** do NOT require a status check that
 > has never reported, and do NOT require Code-Owner review while `CODEOWNERS` still

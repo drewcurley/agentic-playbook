@@ -106,11 +106,15 @@ r=$(make_repo); run_hook "$r" file.txt 'Revert "feat: x"';    expect_pass "rever
 r=$(make_repo); run_hook "$r" docs/x.md "docs: change T-201"; expect_block "unanimous-consensus" "authored /docs without consensus blocks"; rm -rf "$r"
 r=$(make_repo); run_hook "$r" docs/x.md "$consensus";         expect_pass "authored /docs with consensus passes"; rm -rf "$r"
 r=$(make_repo); run_hook "$r" docs/repos/web/x.md "docs: rollup T-202"; expect_pass "generated docs/repos/** is exempt"; rm -rf "$r"
+r=$(make_repo); run_hook "$r" "docs/$(printf 'caf\303\251.md')" "docs: change T-201"
+expect_block "unanimous-consensus" "non-ASCII authored /docs filename still needs consensus (T-014)"; rm -rf "$r"
+r=$(make_repo); run_hook "$r" "docs/$(printf 'a\tb.md')" "docs: change T-201"
+expect_block "unanimous-consensus" "authored /docs filename git must quote still needs consensus (T-014)"; rm -rf "$r"
 
 # 3) Fail closed (T-013): a git or filter error can't read as "no /docs change".
-r=$(make_repo); run_hook "$r" docs/x.md "docs: change T-201" git 'diff --cached --name-only*'
+r=$(make_repo); run_hook "$r" docs/x.md "docs: change T-201" git '*--name-only*'
 expect_block "consensus check could not run" "staged file list error fails closed" stub; rm -rf "$r"
-r=$(make_repo); run_hook "$r" docs/x.md "docs: change T-201" sed '-n /^docs*'
+r=$(make_repo); run_hook "$r" docs/x.md "docs: change T-201" sed '-n /^"*'
 expect_block "consensus check could not run" "file list filter error fails closed" stub; rm -rf "$r"
 
 # 4) First commit in a new repo (no HEAD yet): the /docs gate still applies.
