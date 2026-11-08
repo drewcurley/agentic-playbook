@@ -132,7 +132,7 @@ r=$(make_repo)
 expect_block "$r" "clean line" "Direct commit to 'main'" "commit on main blocks"
 rm -rf "$r"
 
-# --- Fail closed on git errors (T-013) ----------------------------------------
+# --- Fail closed on git errors (starter T-013) ----------------------------------------
 
 # make_stub <cmd> <exit>: a dir holding a <cmd> that prints an error, touches
 # $STUB_HIT and exits <exit> when its argument string matches the glob $STUB_FAIL;
@@ -188,7 +188,7 @@ else bad "initial commit (no HEAD) clean change passes (rc=$rc, stderr: $err)"; 
 rm -rf "$r"
 new_repo; expect_block "$r" "key=$aws_key" "AWS access key ID" "initial commit (no HEAD) secret blocks"; rm -rf "$r"
 
-# 8) Nothing can hide staged content from the scans (T-014): .gitattributes -diff /
+# 8) Nothing can hide staged content from the scans (starter T-014): .gitattributes -diff /
 #    binary / textconv, an external diff, a NUL byte. Each case first proves a plain
 #    `git diff --cached` really hides the secret, so it can't pass vacuously.
 # hidden_block <root> <description> [VAR=value]: stage everything, expect the hook
@@ -236,11 +236,11 @@ stage_block() {
 # allow_repo: make_repo plus an allowlisted, committed README.md. Sets $r.
 allow_repo() {
   r=$(make_repo); printf 'README.md\n' > "$r/.placeholder-allow"; echo readme > "$r/README.md"
-  ( cd "$r" && git add -A && git commit -qm "chore: allowlist T-010" )
+  ( cd "$r" && git add -A && git commit -qm "chore: allowlist T-910" )
 }
 r=$(make_repo); printf 'x.cfg -diff\n' > "$r/.gitattributes"; printf '%s\n' "$placeholder" > "$r/x.cfg"
 stage_block "$r" "x.cfg: " "placeholder in a -diff file blocks"
-allow_repo; printf '%s\n' "$placeholder" > "$r/README.md"; ( cd "$r" && git commit -qam "docs: ph T-011" && git mv README.md notes.md )
+allow_repo; printf '%s\n' "$placeholder" > "$r/README.md"; ( cd "$r" && git commit -qam "docs: ph T-911" && git mv README.md notes.md )
 stage_block "$r" "notes.md: " "rename out of an allowlisted path blocks"
 allow_repo; printf '%s\n' "$placeholder" > "$r/READM[E].md"; stage_block "$r" "READM[E].md: " "glob-like filename isn't expanded to an allowlisted file"
 allow_repo; printf '%s\n' "$placeholder" > "$r/:(top)x.md";  stage_block "$r" ":(top)x.md: " "pathspec-magic filename is read literally"
@@ -253,6 +253,24 @@ allow_repo; printf '%s\n' "$placeholder" > "$r/x#;e touch PWNED;#.md"
 stage_block "$r" "x#;e touch PWNED;#.md: 1:+use [" "filename with sed syntax is reported, not run"
 if [ ! -e "$tmp/PWNED" ] && [ ! -e PWNED ]; then ok "filename with sed syntax runs nothing"
 else bad "filename with sed syntax ran a command (PWNED exists)"; fi
+
+# 11) Hand-editing a ledger's INDEX.md warns (exit 0, names the path); other paths
+#     don't. Any <dir>/tasks/INDEX.md counts, so the starter's own history ledger
+#     is covered without the hook naming it (starter T-015).
+# index_warn <path> <yes|no> <description>
+index_warn() {
+  r=$(make_repo); mkdir -p "$r/$(dirname -- "$1")"; echo row >> "$r/$1"
+  ( cd "$r" && git add -- "$1" )
+  err=$( cd "$r" && "$SH" "$sut" 2>&1 >/dev/null ); rc=$?
+  hit=no; printf '%s' "$err" | grep -qF -- "$1 is regenerated from per-task frontmatter" && hit=yes
+  if [ "$rc" -eq 0 ] && [ "$hit" = "$2" ]; then ok "$3"; else bad "$3 (rc=$rc, stderr: $err)"; fi
+  rm -rf "$r"
+}
+index_warn tasks/INDEX.md          yes "hand-edit of tasks/INDEX.md warns"
+index_warn .starter/tasks/INDEX.md yes "hand-edit of the starter ledger's INDEX.md warns"
+index_warn tasks/T-001.md          no  "a task file doesn't warn"
+index_warn tasks/INDEX.md.orig     no  "INDEX.md.orig doesn't warn"
+index_warn mytasks/INDEX.md        no  "mytasks/INDEX.md doesn't warn"
 
 echo
 echo "Results: $pass passed, $fail failed"

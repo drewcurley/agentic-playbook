@@ -15,9 +15,41 @@ bypasses all of it.
 ## 1. Fork / copy the repo
 Use it as a template or copy the tree into a fresh repo. Keep the directory layout.
 
+**Then decide about `.starter/`: will you pull future updates from this starter?**
+- **No** (template copy, no upstream sync): `git rm -r .starter` in your first PR. It is the
+  starter's own task and decision history, and nothing depends on it.
+- **Yes, or not sure:** keep it. Agents ignore it (`AGENTS.md` session start), and deleting
+  it would cause a conflict on every sync. You can delete it later. Pick "keep" if you might
+  ever add the starter as an upstream remote.
+
+Your `tasks/` and `docs/` start clean: the docs-bootstrap seeds (`T-001*`, `T-002`) plus
+templates. Code and docs that cite **"starter T-0NN"** mean the upstream repo's
+`.starter/tasks/T-0NN.md`, not your own T-0NN. Both ledgers use `T-NNN` IDs, so in a synced
+repo `git log --grep T-NNN` can match starter commits too.
+
+**Existing forks only: syncing across this change (starter T-015).** Upstream moved its own
+history out of `tasks/` and `docs/` into `.starter/`. If the sync conflicts:
+
+- **`tasks/INDEX.md`:** delete the rows for tasks whose files now live in `.starter/tasks/`
+  and keep your own.
+- **A modify/delete conflict on a starter task, ADR or review file:** keep the file at its
+  new path under `.starter/`, even if you had deleted it before. Those files are inert, and
+  the ledger test checks that the folder is complete. If you don't want the starter's history
+  at all, remove the whole folder instead: `git rm -r .starter`.
+
+The sync also adds two CI steps:
+
+- `scripts/test/test-task-ledgers.sh` fails if a seed task (`tasks/T-001*.md`,
+  `tasks/T-002.md`) is missing: restore it from upstream and set `state: cancelled` instead
+  of deleting it. While you keep `.starter/`, it also checks that the shipped docs don't
+  point into `.starter/` at a file that isn't there, or at a starter file's old path.
+- `scripts/test/test-ci-wiring.sh` fails if any `scripts/test/test-*.sh` isn't a step in
+  both `azure-pipelines.yml` and the GitHub workflow, written `sh scripts/test/<name>.sh`.
+  If you added suites of your own, wire them into both files that way.
+
 ## 2. Replace every placeholder
 ```sh
-grep -rl '\[insert ' .          # find them all
+grep -rl --exclude-dir=.starter '\[insert ' .   # find them all
 ```
 Fill in stack, product name, and the **handles in `.github/CODEOWNERS`** (real GitHub
 teams/users — these route human review). The pre-commit hook blocks any unreplaced
@@ -42,7 +74,7 @@ active CI is Azure DevOps:
    no CI and the gate never runs.
 3. (Optional) set a `GITHUB_TOKEN` pipeline secret to enable the PR-body template check.
 4. **Land `scripts/` on `main` before requiring the check.** A PR build runs the
-   gate from the *target* branch (`scripts/ci-pr-checks.sh`, T-014), so it fails
+   gate from the *target* branch (`scripts/ci-pr-checks.sh`, starter T-014), so it fails
    closed if `main` has no `scripts/ci-checks.sh` yet. Merge the starter's files
    first, then turn on Build Validation.
 5. **Fork PRs** (pipeline → Triggers → Pull request validation): leave **"Make

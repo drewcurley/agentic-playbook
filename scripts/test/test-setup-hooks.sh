@@ -44,7 +44,7 @@ if [ -x "$root/.githooks/pre-commit" ] && [ -x "$root/.githooks/commit-msg" ] &&
 then ok "makes hooks executable"; else bad "makes hooks executable"; fi
 
 # 2) Every CI file/script the guidance names exists (it once pointed at
-#    .github/workflows/checks.yml after that file was parked — T-012).
+#    .github/workflows/checks.yml after that file was parked — starter T-012).
 named=$(printf '%s\n' "$out" | grep -oE '[A-Za-z0-9_./-]+\.(yml|yaml|sh)' || true)
 missing_paths=''
 for p in $named; do [ -f "$playbook_src/$p" ] || missing_paths="$missing_paths $p"; done

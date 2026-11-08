@@ -4,7 +4,7 @@
 # WHY this exists: both pipelines need the same answer, and the inline versions
 # masked git errors (`git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD`
 # turned any failure into an empty HEAD...HEAD range that passed every gate) or
-# handed ci-checks.sh GitHub's all-zeros "before" on a branch's first push (T-013).
+# handed ci-checks.sh GitHub's all-zeros "before" on a branch's first push (starter T-013).
 #
 # Usage:  sh scripts/ci-base.sh [<before-sha>]
 #   <before-sha>  the pre-push tip, if the CI system gives one (GitHub's

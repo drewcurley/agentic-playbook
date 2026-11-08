@@ -26,7 +26,7 @@ Make **Azure DevOps the active CI** for the starter and every fork, while GitHub
 - Re-enabling Actions later is a one-line `git mv` of the parked workflow + re-enabling CodeQL in settings. The exit trigger is explicit: **org approval of GitHub Actions**.
 
 **Bad / accepted trade-offs:**
-- **Default enforcement posture regresses to CI-OFF-until-wired.** Unlike an Actions workflow (auto-runs once committed), an ADO pipeline enforces nothing until it is created in the ADO project **and** PR validation is enabled. For GitHub-hosted repos ADO **ignores the YAML `pr:` trigger** — PR validation must be a Branch Policy → Build Validation. Until then `--no-verify` fully bypasses gates server-side. Documented prominently in `AGENTS.md` § 7 and `tasks/T-004.md`; local hooks still run regardless.
+- **Default enforcement posture regresses to CI-OFF-until-wired.** Unlike an Actions workflow (auto-runs once committed), an ADO pipeline enforces nothing until it is created in the ADO project **and** PR validation is enabled. For GitHub-hosted repos ADO **ignores the YAML `pr:` trigger** — PR validation must be a Branch Policy → Build Validation. Until then `--no-verify` fully bypasses gates server-side. Documented prominently in `AGENTS.md` § 7 and `.starter/tasks/T-004.md`; local hooks still run regardless.
 - **Per-repo setup**, like the hooks — every repo needs its own pipeline + branch policy.
 - The PR-body-template check needs a GitHub token (PR metadata lives in GitHub, not ADO); it is opt-in via a `GITHUB_TOKEN` pipeline secret and skipped-with-notice otherwise (human review + the PR template still cover completeness).
 - Security scanning (CodeQL) is dark until Actions is approved or an equivalent is added in ADO.

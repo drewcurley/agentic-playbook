@@ -144,7 +144,7 @@ if [ "$(hookspath "$root/web")" = ".githooks" ]; then ok "re-run is idempotent a
 rm -rf "$root"
 
 # 15) Every CI file/script the closing guidance names exists in the playbook (it once
-#     pointed at .github/workflows/checks.yml after that file was parked — T-012).
+#     pointed at .github/workflows/checks.yml after that file was parked — starter T-012).
 root=$(make_workspace); make_repo "$root" web
 write_manifest "$root" <<'EOF'
 | dir | role | url | branch | contracts |

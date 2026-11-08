@@ -19,14 +19,14 @@
 #          (task ID, /docs consensus). Keep the three in sync.
 #
 # Keep this ONE self-contained file (no sourcing siblings): PR builds extract just
-# this file from the target branch and run it (scripts/ci-pr-checks.sh, T-014).
+# this file from the target branch and run it (scripts/ci-pr-checks.sh, starter T-014).
 # CI_PLACEHOLDER_ALLOW=<file> replaces ./.placeholder-allow (ci-pr-checks.sh passes
 # the target branch's copy, so a PR can't allowlist itself); set but empty or
 # missing means nothing is allowlisted.
 
 set -u
 # Bytes, not characters: BSD sed/grep stop on invalid UTF-8, which binary content
-# in a --text diff is (T-014).
+# in a --text diff is (starter T-014).
 LC_ALL=C; export LC_ALL
 
 base="${1:?usage: ci-checks.sh <base-sha> <head-sha>}"
@@ -39,7 +39,7 @@ err() { printf 'CI-CHECK FAIL: %s\n' "$*" >&2; fail=1; }
 # subshells, and exit there would not stop this script.
 die() { printf 'CI-CHECK FAIL: %s Failing closed: the gates could not all run.\n' "$*" >&2; exit 1; }
 
-# Fail closed on git errors (T-013). Each git call is captured on its own and its
+# Fail closed on git errors (starter T-013). Each git call is captured on its own and its
 # status checked: in `git diff | grep ... || true` the status is grep's, so a git
 # error used to read as an empty diff and pass every gate. Filters use sed, which
 # exits 0 on no match, so no `|| true` is needed to hide grep's exit 1.
@@ -74,7 +74,7 @@ fi
 rng="$from..$head"
 # --text --no-textconv --no-ext-diff: a .gitattributes entry (-diff, binary, a
 # textconv driver), an external diff, or a NUL byte must not turn content into
-# "Binary files differ" or anything else the scans can't see (T-014).
+# "Binary files differ" or anything else the scans can't see (starter T-014).
 # --no-renames: a rename shows as delete + add, so the moved content is scanned
 # (a rename out of an allowlisted path would otherwise carry its placeholders along).
 full_diff=$(git diff --text --no-textconv --no-ext-diff --no-renames "$from" "$head" -U0) || die "git diff $rng failed."
@@ -94,7 +94,7 @@ allowed() {
 # Filenames come from the PR. List them unquoted (core.quotePath=false), split on
 # newlines only, never glob-expand them (set -f), and read each back as a literal
 # path (--literal-pathspecs): otherwise `a b.md`, `AGENT[S].md`, `:(top)x` or
-# `café.md` is checked as some other path, or none (T-014). Names git still quotes
+# `café.md` is checked as some other path, or none (starter T-014). Names git still quotes
 # (tab, newline, quote, backslash) can't be read back reliably, so they fail.
 changed_files=$(git -c core.quotePath=false diff --no-renames --name-only --diff-filter=ACMR "$from" "$head") \
   || die "git diff --name-only $rng failed."
@@ -113,7 +113,7 @@ for f in $changed_files; do
   case "$ph_rc" in
     0)
       # Never put $f inside a sed script: a filename like `x#;e cmd;#` would run
-      # cmd under GNU sed (T-014). printf treats it as data.
+      # cmd under GNU sed (starter T-014). printf treats it as data.
       printf '%s\n' "$f_added" | grep -nE '\[insert [^]]+ here\]' \
         | while IFS= read -r hit; do printf '  %s: %s\n' "$f" "$hit"; done >&2
       err "Unreplaced [insert ... here] placeholder in '$f' (not allowlisted; see .placeholder-allow).${CI_PLACEHOLDER_ALLOW+ The allowlist is read from the target branch, so a new entry must land in an earlier PR.}"

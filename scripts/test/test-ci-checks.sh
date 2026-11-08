@@ -115,7 +115,7 @@ rc=$(run_checks "$r"); expect_rc "$rc" 0 "docs change with consensus passes"
 rm -rf "$r"
 
 # 8) Private-key block fails. Its pattern starts with '-' (which silently disabled
-#    the pre-commit scan, T-012); assembled at runtime for the same reason as 4).
+#    the pre-commit scan, starter T-012); assembled at runtime for the same reason as 4).
 r=$(make_repo)
 d=-----
 ( cd "$r" && printf '%sBEGIN RSA PRIVATE KEY%s\n' "$d" "$d" >> file.txt && git add -A && git commit -qm "chore: key T-108" )
@@ -145,7 +145,7 @@ if [ "$rc" -ne 0 ] && printf '%s' "$err" | grep -qF "Secret scanner error"; then
 else bad "grep error fails closed (rc=$rc, stderr: $err)"; fi
 rm -rf "$r"
 
-# --- Fail closed on git errors (T-013) ----------------------------------------
+# --- Fail closed on git errors (starter T-013) ----------------------------------------
 # Each case asserts: exit 1, ci-checks' own message, and no "all gates passed".
 
 # make_stub <cmd> <exit>: a dir holding a <cmd> that, on the $STUB_NTH-th (default
@@ -288,7 +288,7 @@ root_repo "clean" "chore: init, no id"; run_ci "$r" "$et" "$h"
 expect_closed "missing a Task ID" "root mode: root commit without a Task ID fails"
 rm -rf "$r"
 
-# --- Trusted allowlist and content the diff can't hide (T-014) ----------------
+# --- Trusted allowlist and content the diff can't hide (starter T-014) ----------------
 ph=$(printf 'use [%s thing here]' insert)
 aws="key=AKIA$(printf 'IOSFODNN7EXAMPLE')"
 

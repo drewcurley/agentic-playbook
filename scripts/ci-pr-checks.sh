@@ -4,7 +4,7 @@
 # WHY this exists: a PR build checks out the PR, so its scripts/ci-checks.sh and
 # .placeholder-allow were written by the PR's author. Running those lets a PR
 # loosen the rules it is judged by (edit a regex, allowlist its own placeholder)
-# with no visible CI change (T-014). This extracts both from the branch the PR
+# with no visible CI change (starter T-014). This extracts both from the branch the PR
 # merges into and runs that copy; the PR is read only as data, through git.
 #
 # The pipelines take THIS script from the target branch too (the "trusted-gate"
@@ -70,7 +70,7 @@ case "$entry" in
 esac
 
 if ! grep -q CI_PLACEHOLDER_ALLOW "$tmp/ci-checks.sh"; then
-  warn "The target's ci-checks.sh predates T-014: it reads this PR's own .placeholder-allow and doesn't diff with --text, so .gitattributes or a NUL byte can hide content from it."
+  warn "The target's ci-checks.sh predates starter T-014: it reads this PR's own .placeholder-allow and doesn't diff with --text, so .gitattributes or a NUL byte can hide content from it."
 fi
 
 CI_PLACEHOLDER_ALLOW="$tmp/placeholder-allow" sh "$tmp/ci-checks.sh" "$target" "$head"

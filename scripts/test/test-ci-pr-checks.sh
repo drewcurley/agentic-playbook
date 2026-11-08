@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # Fixture test for scripts/ci-pr-checks.sh and the "trusted-gate" block in both CI
-# files (T-014: a PR can't loosen the gates it is judged by).
+# files (starter T-014: a PR can't loosen the gates it is judged by).
 #
 # Stack-neutral: POSIX sh + git only. Builds throwaway repos whose `main` carries
 # the real gate files and whose `pr` branch tries to weaken them, then runs the
@@ -9,7 +9,7 @@
 #
 # Run:  sh scripts/test/test-ci-pr-checks.sh
 #       CI_PR_CHECKS=<path> sh scripts/test/test-ci-pr-checks.sh  (test another runner;
-#         a shim running `sh scripts/ci-checks.sh "$1" "$2"` is the pre-T-014 pipeline)
+#         a shim running `sh scripts/ci-checks.sh "$1" "$2"` is the pipeline before starter T-014)
 #       CI_FILES_ROOT=<dir> sh scripts/test/test-ci-pr-checks.sh (read the two CI files from <dir>)
 #       SH=dash sh scripts/test/test-ci-pr-checks.sh             (run it under dash)
 # Exit: 0 all pass, 1 any failure.
@@ -54,11 +54,11 @@ make_fixture() {
   printf '# allowlist\nREADME.md\n' > "$r/.placeholder-allow"
   ( cd "$r" && git init -q && git symbolic-ref HEAD refs/heads/main \
       && git config user.email t@t && git config user.name t && git config commit.gpgsign false \
-      && echo base > file.txt && echo readme > README.md && git add -A && git commit -qm "base T-001" \
+      && echo base > file.txt && echo readme > README.md && git add -A && git commit -qm "base T-901" \
       && git checkout -q -b pr )
 }
-on_main() { ( cd "$r" && git checkout -q main && sh -c "$1" && git add -A && git commit -qm "main: $2 T-002" && git checkout -q pr ); }
-pr_commit() { ( cd "$r" && git add -A && git commit -qm "pr: $1 T-003" ); }
+on_main() { ( cd "$r" && git checkout -q main && sh -c "$1" && git add -A && git commit -qm "main: $2 T-902" && git checkout -q pr ); }
+pr_commit() { ( cd "$r" && git add -A && git commit -qm "pr: $1 T-903" ); }
 
 # make_stub <cmd> <exit>: fails the $STUB_NTH-th (default 1st) call whose argument
 # string matches $STUB_FAIL (touching $STUB_HIT); every other call runs the real <cmd>.

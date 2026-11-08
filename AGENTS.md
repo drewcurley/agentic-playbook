@@ -58,6 +58,7 @@ Every agent — regardless of which command-line tool/integrated development env
 2. For any **in-flight** task that looks relevant, open its per-task file at `tasks/T-NNN.md` for full context (description, acceptance criteria, activity log).
 3. If the user's request relates to an existing task, reference its ID (`T-NNN`) in your reply rather than starting a parallel thread of work.
 4. New task? Copy `tasks/_TEMPLATE.md`, pick the next free ID, set `state: proposed`. **One file per task** — never bulk-rewrite the ledger.
+5. **`tasks/` is this project's ledger. Ignore `.starter/`** if it exists: it is the upstream starter's own task and decision history, not this project's state. Never read it for project work, and exclude it when searching for a task ID (`grep -r T-NNN --exclude-dir=.starter`). A comment saying "starter T-0NN" refers to that upstream history. The one exception is when you are changing the starter itself upstream; then `.starter/README.md` says where its ledger and review artifacts go.
 
 ### Step 3 — If `/docs` is empty or missing
 This is the **first and only task** for the session until it's resolved. Tell the user:
@@ -378,7 +379,7 @@ All work happens on feature branches. **No direct pushes to `main`.**
 
 GitHub Actions is **not yet approved for general org use**, so the active CI is **Azure DevOps** (code stays in GitHub; an Azure Pipelines GitHub service connection points at the repo). The pipeline lives at [`/azure-pipelines.yml`](./azure-pipelines.yml).
 
-- **Both CI systems call the same [`scripts/ci-checks.sh`](./scripts/ci-checks.sh)** — the single source of truth for the procedure gates (placeholders, secrets, task-ID, `/docs/*` consensus). This is what keeps them from drifting. On a PR build they run the **target branch's** copy (and its `.placeholder-allow`) through [`scripts/ci-pr-checks.sh`](./scripts/ci-pr-checks.sh), so a PR can't loosen the gate it is judged by; a gate change applies from the next PR on (T-014, `ADOPTING.md` § 5).
+- **Both CI systems call the same [`scripts/ci-checks.sh`](./scripts/ci-checks.sh)** — the single source of truth for the procedure gates (placeholders, secrets, task-ID, `/docs/*` consensus). This is what keeps them from drifting. On a PR build they run the **target branch's** copy (and its `.placeholder-allow`) through [`scripts/ci-pr-checks.sh`](./scripts/ci-pr-checks.sh), so a PR can't loosen the gate it is judged by; a gate change applies from the next PR on (starter T-014, `ADOPTING.md` § 5).
 - The **GitHub Actions equivalent is parked** at `.github/workflows-disabled/checks.yml` (GitHub only runs workflows under `.github/workflows/`, so it's inert). When Actions is approved, `git mv` it back into `.github/workflows/` — one move, no rewrite.
 - CodeQL default-setup (also Actions-based) is disabled for the same reason; re-enable it in repo settings when Actions is approved.
 - **Adopting teams:** wire `azure-pipelines.yml` into your Azure DevOps project for **each** repo (it's per-repo, like the hooks). If your team is approved for GitHub Actions, un-park the workflow instead.
