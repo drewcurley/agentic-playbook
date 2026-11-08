@@ -22,7 +22,7 @@ git config --unset core.hooksPath
 | `pre-commit` | Any staged content containing `[insert … here]` placeholders | `AGENTS.md` § 8 — hard gate |
 | `pre-commit` | Staged content containing AWS keys, private-key blocks, GitHub/Slack/OpenAI/Anthropic tokens (basic regex scan) | Architect redline |
 | `pre-commit` | (warn only) `/docs/*` change — flags that commit-msg will require the consensus assertion | `AGENTS.md` § 0 |
-| `pre-commit` | (warn only) Hand-edits to `tasks/INDEX.md` — it's a derived view | `tasks/README.md` |
+| `pre-commit` | (warn only) Hand-edits to any `tasks/INDEX.md` — it's a derived view | `tasks/README.md` |
 | `commit-msg` | Commit messages missing a Task ID (`T-NNN` or `T-NNN.M`) | `AGENTS.md` § 7 step 8 |
 | `commit-msg` | `/docs/*` change without `unanimous-consensus: T-NNN` in the message | `AGENTS.md` § 8 hard gate |
 | `pre-push` | Force-push to a protected branch | Safety |

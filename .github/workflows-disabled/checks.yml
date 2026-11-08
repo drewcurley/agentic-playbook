@@ -12,7 +12,7 @@ name: procedure-checks
 #   git mv .github/workflows-disabled/checks.yml .github/workflows/checks.yml
 #   (and, if desired, re-enable the CodeQL default-setup in repo settings.)
 # Keep the `pull_request` trigger: do NOT switch to `pull_request_target` until
-# the gate-trust follow-up in tasks/T-014.md lands (contents: read permissions,
+# the gate-trust follow-up in starter T-014 lands (contents: read permissions,
 # persist-credentials: false, PR content read only as data, never executed).
 # Then retire or keep azure-pipelines.yml per your team's choice.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -55,6 +55,12 @@ jobs:
       - name: ci-pr-checks.sh fixture tests
         run: sh scripts/test/test-ci-pr-checks.sh
 
+      - name: task ledger invariants
+        run: sh scripts/test/test-task-ledgers.sh
+
+      - name: every fixture suite runs in CI
+        run: sh scripts/test/test-ci-wiring.sh
+
       - name: setup-hooks.sh fixture tests
         run: sh scripts/test/test-setup-hooks.sh
 
@@ -80,7 +86,7 @@ jobs:
           else
             # A branch's first push has before=0000…; ci-base.sh maps that to HEAD~1,
             # or the empty tree for a root commit (ci-checks.sh would rightly fail
-            # closed on the zeros — T-013).
+            # closed on the zeros — starter T-013).
             base=$(sh scripts/ci-base.sh "$BEFORE")
             echo "base=$base" >> "$GITHUB_OUTPUT"
             echo "head=${{ github.sha }}" >> "$GITHUB_OUTPUT"
@@ -95,11 +101,11 @@ jobs:
         run: |
           head=$HEAD_SHA
           if [ "$EVENT" = "pull_request" ]; then
-            # PR build: run the TARGET branch's gate (T-014).
+            # PR build: run the TARGET branch's gate (starter T-014).
             # The base SHA recorded when the PR event fired (main may have moved since).
             target_sha=$(git rev-parse --verify "$TARGET_SHA^{commit}")
             echo "PR build: target $target_sha, head $head"
-            # BEGIN trusted-gate (T-014). Keep identical in azure-pipelines.yml and
+            # BEGIN trusted-gate (starter T-014). Keep identical in azure-pipelines.yml and
             # .github/workflows-disabled/checks.yml; scripts/test/test-ci-pr-checks.sh runs it.
             # Takes ci-pr-checks.sh from the TARGET branch, so a PR can't swap the gate out by
             # editing it; the PR's own copy runs only while the target has none (bootstrap).

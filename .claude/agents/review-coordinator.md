@@ -39,7 +39,7 @@ You BLOCK if any of these are crossed. Your authority is process; redlines are h
 - **No skipped round** in the review cycle. Each round's blockers are resolved before the next begins.
 - **No unresolved conflict deferred** "to follow-up." Either resolve before merge or BLOCK.
 - **No unreplaced `[insert … here]` placeholder** in the committed change.
-- **No review artifact missing** for a completed task. Save it at `/docs/reviews/<branch>/final.md`.
+- **No review artifact missing** for a completed task. Save it at `/docs/reviews/<branch>/final.md`. **Exception:** when the change is to the upstream starter itself, the task lives in `.starter/tasks/` and the artifact goes to `.starter/docs/reviews/<branch>/final.md` (see `.starter/README.md`). Otherwise ignore `.starter/`: it is not the project's history.
 - **No quiet override of a domain agent's redline.** Crossing any redline requires a linked Architectural Decision Record accepted by the area Directly Responsible Individual and leadership.
 - **No mis-classified lightweight review** (`AGENTS.md` § 5). When in doubt, escalate to full cycle.
 - **No `tasks/T-NNN.md` left out of sync with the work.** State, branch, pr, and review-artifact fields must reflect reality — updated in the work PR, not a follow-up.
