@@ -45,7 +45,7 @@ Builder and Adopter sign off with the warnings above. Conflicts, all resolved:
 The starter's own ADRs and reviews leave the mechanical `/docs` consensus gate. They are protected by `CODEOWNERS` and by convention instead. The user accepted this on 2026-11-01; see `.starter/docs/decisions/0004-starter-ledger-separation.md`.
 
 ## Evidence
-- Commit 1 (`2e5c254`) is 13 renames, all R100; `git log --follow` reaches `4f56df1`.
+- Commit 1 (`2e5c254`, now `8ce1144` after the final rebase) is 13 renames, all R100; `git log --follow` reaches `4f56df1`.
 - Red run on `git archive 2e5c254`: check 2 fails 9 times, check 3 11 times, check 5 41 times. Check 6 can't fail there, so its fixtures are its only proof.
 - `test-ci-wiring.sh` failed before it was wired into CI.
 - Mutants on the ledger suite: 53 run, 49 killed at re-verify; N03, N05 and N09 then killed by new fixtures; N11 is equivalent. All 7 wiring mutants killed.
@@ -54,3 +54,5 @@ The starter's own ADRs and reviews leave the mechanical `/docs` consensus gate. 
 - Fork simulations pass: keeping the files at `.starter/`, `git rm -r .starter` mid-merge, and an adopter's own forward references.
 
 **Not verified:** a real Azure DevOps run on Ubuntu (runtime and `mawk`; only BSD awk was run), and GitHub branch protection settings.
+
+**Merged without CI:** no check has reported on this stack, so the "CI must pass" gate was not met. The user approved merging anyway on 2026-11-08. The tree that merged is identical to the reviewed one.
