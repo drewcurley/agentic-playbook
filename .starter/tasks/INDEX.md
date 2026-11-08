@@ -23,7 +23,7 @@
 | [T-012](./T-012.md) | Fix pre-commit private-key scan silently skipped | backend-engineer | — | fix/precommit-dash-pattern | #3 | .starter/tasks/T-012.md#review-artifact |
 | [T-013](./T-013.md) | Fail closed when git diff/log errors in the hooks and ci-checks.sh | backend-engineer | — | fix/diff-fail-closed | #4 | .starter/tasks/T-013.md#review-artifact |
 | [T-014](./T-014.md) | A PR can't loosen the CI gates it is judged by | architect | — | fix/pr-gate-trust | #5 | .starter/tasks/T-014.md#review-artifact |
-| [T-015](./T-015.md) | Keep the starter's own ledger out of adopters' tasks/ and docs/ | review-coordinator | — | chore/starter-ledger | — | .starter/docs/reviews/chore-starter-ledger/final.md |
+| [T-015](./T-015.md) | Keep the starter's own ledger out of adopters' tasks/ and docs/ | review-coordinator | — | chore/starter-ledger | #6 | .starter/docs/reviews/chore-starter-ledger/final.md |
 
 ## Cancelled / Superseded
 
