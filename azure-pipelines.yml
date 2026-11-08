@@ -64,6 +64,10 @@ jobs:
         displayName: ci-checks.sh fixture tests
       - script: sh scripts/test/test-pre-commit.sh
         displayName: pre-commit hook fixture tests
+      - script: sh scripts/test/test-commit-msg.sh
+        displayName: commit-msg hook fixture tests
+      - script: sh scripts/test/test-ci-base.sh
+        displayName: ci-base.sh fixture tests
       - script: sh scripts/test/test-setup-hooks.sh
         displayName: setup-hooks.sh fixture tests
       - script: sh scripts/test/test-aggregate-docs.sh
@@ -87,8 +91,10 @@ jobs:
             git fetch -q origin "$target"
             base=$(git merge-base HEAD FETCH_HEAD)
           else
-            # Branch/CI build: scan the pushed range if available, else the tip commit.
-            base="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+            # Branch/CI build: scan the tip commit (HEAD~1...HEAD, or the whole tree
+            # for a root commit). ci-base.sh fails rather than fall back to
+            # HEAD...HEAD, which would scan nothing (T-013).
+            base=$(sh scripts/ci-base.sh)
           fi
           head="$(git rev-parse HEAD)"
           echo "Diff range: $base...$head"

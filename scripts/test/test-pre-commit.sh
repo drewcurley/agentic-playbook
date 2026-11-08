@@ -8,6 +8,7 @@
 #
 # Run:  sh scripts/test/test-pre-commit.sh
 #       PRE_COMMIT_HOOK=<path> sh scripts/test/test-pre-commit.sh  (test another hook)
+#       SH=dash sh scripts/test/test-pre-commit.sh                 (run it under dash)
 # Exit: 0 all pass, 1 any failure.
 
 set -u
@@ -16,11 +17,17 @@ test_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 playbook_src=$(CDPATH='' cd -- "$test_dir/../.." && pwd)
 sut="${PRE_COMMIT_HOOK:-$playbook_src/.githooks/pre-commit}"
 case "$sut" in /*) ;; *) sut="$PWD/$sut" ;; esac
+SH="${SH:-sh}"
 
 # Ignore the runner's own git config (hooksPath, default branch, signing).
 GIT_CONFIG_GLOBAL=/dev/null
 GIT_CONFIG_NOSYSTEM=1
 export GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
+
+# Stubs and scratch files live outside the fixture repos.
+tmp=$(mktemp -d 2>/dev/null || mktemp -d -t pc)
+trap 'rm -rf "$tmp"' EXIT
 
 pass=0
 fail=0
@@ -47,7 +54,7 @@ make_repo() {
 run_hook() {
   printf '%s\n' "$2" >> "$1/file.txt"
   ( cd "$1" && git add file.txt )
-  err=$( cd "$1" && sh "$sut" 2>&1 >/dev/null ); rc=$?
+  err=$( cd "$1" && "$SH" "$sut" 2>&1 >/dev/null ); rc=$?
 }
 
 # expect_block <root> <content> <label> <description>: hook exits 1 naming <label>.
@@ -75,6 +82,7 @@ gh_token="ghp_$(rep a 36)"
 slack_token="xoxb-$(printf '123-abc')"
 openai_key="sk-$(rep A 24)"
 anthropic_key="sk-ant-api03-$(rep b 24)"
+placeholder=$(printf 'use [%s thing here]' insert)   # same reason: the hook blocks the literal
 
 echo "test-pre-commit.sh"
 
@@ -111,7 +119,7 @@ EOF
 chmod +x "$r/.stub/grep"
 printf '%s\n' "clean line" >> "$r/file.txt"
 ( cd "$r" && git add file.txt )
-err=$( cd "$r" && PATH="$r/.stub:$PATH" sh "$sut" 2>&1 >/dev/null ); rc=$?
+err=$( cd "$r" && PATH="$r/.stub:$PATH" "$SH" "$sut" 2>&1 >/dev/null ); rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$err" | grep -qF "Secret scanner error"; then ok "grep error fails closed"
 else bad "grep error fails closed (rc=$rc, stderr: $err)"; fi
 rm -rf "$r"
@@ -121,6 +129,62 @@ r=$(make_repo)
 ( cd "$r" && git checkout -q main )
 expect_block "$r" "clean line" "Direct commit to 'main'" "commit on main blocks"
 rm -rf "$r"
+
+# --- Fail closed on git errors (T-013) ----------------------------------------
+
+# make_stub <cmd> <exit>: a dir holding a <cmd> that prints an error, touches
+# $STUB_HIT and exits <exit> when its argument string matches the glob $STUB_FAIL;
+# otherwise it runs the real <cmd>. Put it on PATH only for the hook.
+make_stub() {
+  real=$(command -v "$1")
+  mkdir -p "$tmp/stub-$1"
+  cat > "$tmp/stub-$1/$1" <<EOF
+#!/bin/sh
+# shellcheck disable=SC2254
+case "\$*" in \$STUB_FAIL) : > "\$STUB_HIT"; echo "stub: injected $1 failure" >&2; exit $2 ;; esac
+exec "$real" "\$@"
+EOF
+  chmod +x "$tmp/stub-$1/$1"
+}
+make_stub git 128
+make_stub sed 2
+make_stub grep 2
+
+# expect_stub_block <root> <content> <cmd> <glob> <needle> <description>: stage
+# <content>, run the hook with <cmd> failing on <glob>; expect exit 1 naming
+# <needle>, and proof the targeted call ran.
+expect_stub_block() {
+  printf '%s\n' "$2" >> "$1/file.txt"
+  ( cd "$1" && git add file.txt )
+  rm -f "$tmp/hit"
+  err=$( cd "$1" && PATH="$tmp/stub-$3:$PATH" STUB_FAIL="$4" STUB_HIT="$tmp/hit" \
+    "$SH" "$sut" 2>&1 >/dev/null ); rc=$?
+  if [ "$rc" -eq 1 ] && printf '%s' "$err" | grep -qF -- "$5" && [ -e "$tmp/hit" ]; then ok "$6"
+  else bad "$6 (rc=$rc, stderr: $err)"; fi
+}
+
+# 6) A git error on any staged-content read blocks instead of reading as empty.
+r=$(make_repo); expect_stub_block "$r" "key=$aws_key" git 'diff --cached --name-only*' \
+  "git diff --cached --name-only failed" "staged file list error fails closed"; rm -rf "$r"
+r=$(make_repo); expect_stub_block "$r" "key=$aws_key" git 'diff --cached --diff-filter=ACMR -U0' \
+  "git diff --cached failed" "staged diff error fails closed (secret not missed)"; rm -rf "$r"
+r=$(make_repo); expect_stub_block "$r" "$placeholder" git 'diff --cached --diff-filter=ACMR -U0 -- *' \
+  "git diff --cached -- 'file.txt' failed" "per-file diff error fails closed (placeholder not missed)"; rm -rf "$r"
+r=$(make_repo); expect_stub_block "$r" "key=$aws_key" sed '-n /^+++/*' \
+  "Filtering the staged diff failed" "diff filter error fails closed"; rm -rf "$r"
+r=$(make_repo); expect_stub_block "$r" "$placeholder" grep '*insert*' \
+  "Placeholder scanner error" "placeholder grep error fails closed"; rm -rf "$r"
+
+# 7) First commit in a new repo (no HEAD yet) still works: clean passes, a secret blocks.
+new_repo() {
+  r=$(mktemp -d 2>/dev/null || mktemp -d -t pc)
+  ( cd "$r" && git init -q && git symbolic-ref HEAD refs/heads/feat/x )
+}
+new_repo; run_hook "$r" "clean line"
+if [ "$rc" -eq 0 ] && [ -z "$err" ]; then ok "initial commit (no HEAD) clean change passes"
+else bad "initial commit (no HEAD) clean change passes (rc=$rc, stderr: $err)"; fi
+rm -rf "$r"
+new_repo; expect_block "$r" "key=$aws_key" "AWS access key ID" "initial commit (no HEAD) secret blocks"; rm -rf "$r"
 
 echo
 echo "Results: $pass passed, $fail failed"
