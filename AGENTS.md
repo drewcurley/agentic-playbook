@@ -378,7 +378,7 @@ All work happens on feature branches. **No direct pushes to `main`.**
 
 GitHub Actions is **not yet approved for general org use**, so the active CI is **Azure DevOps** (code stays in GitHub; an Azure Pipelines GitHub service connection points at the repo). The pipeline lives at [`/azure-pipelines.yml`](./azure-pipelines.yml).
 
-- **Both CI systems call the same [`scripts/ci-checks.sh`](./scripts/ci-checks.sh)** — the single source of truth for the procedure gates (placeholders, secrets, task-ID, `/docs/*` consensus). This is what keeps them from drifting.
+- **Both CI systems call the same [`scripts/ci-checks.sh`](./scripts/ci-checks.sh)** — the single source of truth for the procedure gates (placeholders, secrets, task-ID, `/docs/*` consensus). This is what keeps them from drifting. On a PR build they run the **target branch's** copy (and its `.placeholder-allow`) through [`scripts/ci-pr-checks.sh`](./scripts/ci-pr-checks.sh), so a PR can't loosen the gate it is judged by; a gate change applies from the next PR on (T-014, `ADOPTING.md` § 5).
 - The **GitHub Actions equivalent is parked** at `.github/workflows-disabled/checks.yml` (GitHub only runs workflows under `.github/workflows/`, so it's inert). When Actions is approved, `git mv` it back into `.github/workflows/` — one move, no rewrite.
 - CodeQL default-setup (also Actions-based) is disabled for the same reason; re-enable it in repo settings when Actions is approved.
 - **Adopting teams:** wire `azure-pipelines.yml` into your Azure DevOps project for **each** repo (it's per-repo, like the hooks). If your team is approved for GitHub Actions, un-park the workflow instead.

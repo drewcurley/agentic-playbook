@@ -18,15 +18,16 @@ sut="${CI_CHECKS:-$playbook_src/scripts/ci-checks.sh}"
 case "$sut" in /*) ;; *) sut="$PWD/$sut" ;; esac
 SH="${SH:-sh}"
 
-# Ignore the runner's own git config and any inherited repo pointers.
-GIT_CONFIG_GLOBAL=/dev/null
-GIT_CONFIG_NOSYSTEM=1
-export GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM
-unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
-
 # Stubs and scratch files live outside the fixture repos (make_repo runs git add -A).
 tmp=$(mktemp -d 2>/dev/null || mktemp -d -t cc)
 trap 'rm -rf "$tmp"' EXIT
+
+# Ignore the runner's own git config, attributes and any inherited repo pointers.
+mkdir -p "$tmp/home" "$tmp/xdg"
+HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/xdg"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1
+export HOME XDG_CONFIG_HOME GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM GIT_ATTR_NOSYSTEM
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_EXTERNAL_DIFF
 
 pass=0
 fail=0
@@ -232,19 +233,19 @@ run_ci "$r" "$o" "$h";      expect_closed "No merge base" "unrelated histories f
 # The range's commit list is just $h, so each gate's git calls happen once, in
 # order; the docs gate's `git log -1` is the 2nd one (the task-ID gate's is 1st).
 run_ci "$r" "$b" "$h" git 'diff *-U0';                        expect_closed "git diff $b..$h failed" "full diff error fails closed" stub
-run_ci "$r" "$b" "$h" git 'diff --name-only --diff-filter=*'; expect_closed "git diff --name-only $b..$h failed" "changed-file list error fails closed" stub
-run_ci "$r" "$b" "$h" git 'diff *-U0 -- *';                   expect_closed "git diff $b..$h -- 'docs/x.md' failed" "per-file diff error fails closed" stub
+run_ci "$r" "$b" "$h" git '*--name-only --diff-filter=*'; expect_closed "git diff --name-only $b..$h failed" "changed-file list error fails closed" stub
+run_ci "$r" "$b" "$h" git '*diff *-U0 -- *';                   expect_closed "git diff $b..$h -- 'docs/x.md' failed" "per-file diff error fails closed" stub
 run_ci "$r" "$b" "$h" git 'log --format=%H *';                expect_closed "git log $b..$h failed" "commit list error fails closed" stub
 run_ci "$r" "$b" "$h" git 'log -1 *' 1;                       expect_closed "git log -1 $h failed" "task-ID gate message error fails closed" stub
 run_ci "$r" "$b" "$h" git 'log -1 *' 2;                       expect_closed "git log -1 $h failed" "docs gate message error fails closed" stub
-run_ci "$r" "$b" "$h" git 'diff --name-only [!-]*';           expect_closed "git diff --name-only $b..$h failed" "docs file list error fails closed" stub
-run_ci "$r" "$b" "$h" git 'show *';                           expect_closed "git show $h failed" "per-commit file list error fails closed" stub
+run_ci "$r" "$b" "$h" git '*--no-renames --name-only [!-]*';           expect_closed "git diff --name-only $b..$h failed" "docs file list error fails closed" stub
+run_ci "$r" "$b" "$h" git '*show *';                           expect_closed "git show $h failed" "per-commit file list error fails closed" stub
 
 # 15) Filters fail closed too: a broken sed can't empty the diff or a file list,
 #     and a broken placeholder grep can't read as "no placeholder".
 run_ci "$r" "$b" "$h" sed '-n /^+++/*';                       expect_closed "Filtering the diff of $b..$h failed" "diff filter error fails closed" stub
-run_ci "$r" "$b" "$h" sed '-n /^docs*' 1;                     expect_closed "Filtering the changed-file list failed" "docs file list filter error fails closed" stub
-run_ci "$r" "$b" "$h" sed '-n /^docs*' 2;                     expect_closed "Filtering the files of $h failed" "per-commit docs filter error fails closed" stub
+run_ci "$r" "$b" "$h" sed '-n /^"*' 1;                     expect_closed "Filtering the changed-file list failed" "docs file list filter error fails closed" stub
+run_ci "$r" "$b" "$h" sed '-n /^"*' 2;                     expect_closed "Filtering the files of $h failed" "per-commit docs filter error fails closed" stub
 run_ci "$r" "$b" "$h" grep '*insert*';                        expect_closed "Placeholder scanner error" "placeholder grep error fails closed" stub
 rm -rf "$r"
 
@@ -285,6 +286,120 @@ expect_closed "Possible secret detected" "root mode: secret in a root commit fai
 rm -rf "$r"
 root_repo "clean" "chore: init, no id"; run_ci "$r" "$et" "$h"
 expect_closed "missing a Task ID" "root mode: root commit without a Task ID fails"
+rm -rf "$r"
+
+# --- Trusted allowlist and content the diff can't hide (T-014) ----------------
+ph=$(printf 'use [%s thing here]' insert)
+aws="key=AKIA$(printf 'IOSFODNN7EXAMPLE')"
+
+# commit_on <root> <message>: commit everything in <root>; set $b (root) and $h (HEAD).
+commit_on() {
+  ( cd "$1" && git add -A && git commit -qm "$2" )
+  b=$(cd "$1" && git rev-list --max-parents=0 HEAD); h=$(cd "$1" && git rev-parse HEAD)
+}
+
+# 19) CI_PLACEHOLDER_ALLOW replaces the working tree's allowlist, both ways.
+printf '# none\n' > "$tmp/allow-none"; printf 'x.md\n' > "$tmp/allow-x"
+r=$(make_repo); printf '%s\n' "$ph" >> "$r/README.md"; commit_on "$r" "docs: ph T-116"
+out=$( cd "$r" && CI_PLACEHOLDER_ALLOW="$tmp/allow-none" "$SH" scripts/ci-checks.sh "$b" "$h" 2>&1 ); rc=$?
+expect_closed "allowlist is read from the target branch" "CI_PLACEHOLDER_ALLOW without the file overrides the tree's allowlist"
+out=$( cd "$r" && CI_PLACEHOLDER_ALLOW="" "$SH" scripts/ci-checks.sh "$b" "$h" 2>&1 ); rc=$?
+expect_closed "Unreplaced" "CI_PLACEHOLDER_ALLOW set but empty allowlists nothing"
+rm -rf "$r"
+r=$(make_repo); printf '%s\n' "$ph" > "$r/x.md"; commit_on "$r" "docs: ph T-117"
+out=$( cd "$r" && CI_PLACEHOLDER_ALLOW="$tmp/allow-x" "$SH" scripts/ci-checks.sh "$b" "$h" 2>&1 ); rc=$?
+if [ "$rc" -eq 0 ]; then ok "CI_PLACEHOLDER_ALLOW with the file allowlists it"; else bad "CI_PLACEHOLDER_ALLOW with the file allowlists it (rc=$rc, out: $out)"; fi
+rm -rf "$r"
+
+# 20) Nothing can turn a secret into "Binary files differ" or an empty diff:
+#     .gitattributes -diff / binary / textconv, an external diff, a NUL byte. Each
+#     case first proves plain `git diff` really hides it, so it can't pass vacuously.
+# check_hidden <root> <description> [VAR=value]: run plain diff and ci-checks.sh
+# (with the optional env assignment), expect the secret hidden then caught.
+check_hidden() {
+  plain=$( cd "$1" && env ${3:+"$3"} git diff "$b" "$h" -U0 2>&1 ); prc=$?
+  if [ "$prc" -ne 0 ] || printf '%s' "$plain" | grep -aq AKIA; then bad "$2: precondition (plain git diff must succeed and hide the secret; rc=$prc)"; fi
+  out=$( cd "$1" && env ${3:+"$3"} "$SH" scripts/ci-checks.sh "$b" "$h" 2>&1 ); rc=$?
+  expect_closed "Possible secret detected" "$2 can't hide a secret"
+  rm -rf "$1"
+}
+r=$(make_repo); printf 's.cfg -diff\n' > "$r/.gitattributes"; printf '%s\n' "$aws" > "$r/s.cfg"
+commit_on "$r" "chore: hidden T-118"; check_hidden "$r" ".gitattributes -diff"
+r=$(make_repo); printf 's.cfg binary\n' > "$r/.gitattributes"; printf '%s\n' "$aws" > "$r/s.cfg"
+commit_on "$r" "chore: hidden T-119"; check_hidden "$r" ".gitattributes binary"
+r=$(make_repo); printf 's.cfg diff=hide\n' > "$r/.gitattributes"; printf '%s\n' "$aws" > "$r/s.cfg"
+( cd "$r" && git config diff.hide.textconv true )
+commit_on "$r" "chore: hidden T-120"; check_hidden "$r" "a textconv driver"
+r=$(make_repo); printf '%s\n' "$aws" > "$r/s.cfg"
+commit_on "$r" "chore: hidden T-121"; check_hidden "$r" "an external diff (GIT_EXTERNAL_DIFF)" GIT_EXTERNAL_DIFF=true
+r=$(make_repo); printf 'x\000y\n%s\n' "$aws" > "$r/s.dat"
+commit_on "$r" "chore: hidden T-122"; check_hidden "$r" "a NUL byte"
+
+# 21) Binary content under a UTF-8 locale still passes (BSD sed/grep reject invalid
+#     UTF-8 unless the script runs with LC_ALL=C). Only meaningful on macOS/BSD:
+#     GNU sed never fails on these bytes, so on Linux CI this passes regardless.
+r=$(make_repo); printf 'img\377\376\001\n' > "$r/logo.png"; commit_on "$r" "feat: logo T-123"
+out=$( cd "$r" && LC_ALL=C.UTF-8 "$SH" scripts/ci-checks.sh "$b" "$h" 2>&1 ); rc=$?
+if [ "$rc" -eq 0 ]; then ok "binary file under a UTF-8 locale passes"; else bad "binary file under a UTF-8 locale passes (rc=$rc, out: $out)"; fi
+rm -rf "$r"
+
+# 22) The per-file placeholder diff can't be hidden by .gitattributes either.
+r=$(make_repo); printf 'x.cfg -diff\n' > "$r/.gitattributes"; printf '%s\n' "$ph" > "$r/x.cfg"
+commit_on "$r" "chore: hidden ph T-124"
+out=$( cd "$r" && "$SH" scripts/ci-checks.sh "$b" "$h" 2>&1 ); rc=$?
+expect_closed "Unreplaced [insert ... here] placeholder in 'x.cfg'" "placeholder in a -diff file is caught"
+rm -rf "$r"
+
+# 23) Renaming an allowlisted file to a non-allowlisted path carries its placeholder
+#     out (--no-renames shows the move as delete + add, so the content is checked).
+r=$(make_repo); printf '%s\n' "$ph" > "$r/README.md"; commit_on "$r" "docs: allowlisted ph T-125"
+mid=$h; ( cd "$r" && git mv README.md notes.md && git commit -qm "chore: move T-126" ); h=$(cd "$r" && git rev-parse HEAD)
+out=$( cd "$r" && "$SH" scripts/ci-checks.sh "$mid" "$h" 2>&1 ); rc=$?
+expect_closed "placeholder in 'notes.md'" "rename out of an allowlisted path is caught"
+rm -rf "$r"
+
+# 24) Filenames are data: no glob expansion, no pathspec magic, no quoting, no
+#     word splitting can make a file's placeholder be checked as another path.
+# name_case <filename> <needle> <description>: commit <filename> holding a placeholder
+# (README.md, allowlisted, exists so a glob could expand to it); expect a failure.
+name_case() {
+  r=$(make_repo); echo readme > "$r/README.md"; printf '%s\n' "$ph" > "$r/$1"
+  commit_on "$r" "chore: odd name T-127"
+  out=$( cd "$r" && "$SH" scripts/ci-checks.sh "$b" "$h" 2>&1 ); rc=$?
+  expect_closed "$2" "$3"
+  [ ! -e "$r/PWNED" ] || : > "$tmp/PWNED"   # surface a payload that ran in the repo
+  rm -rf "$r"
+}
+name_case 'READM[E].md'  "placeholder in 'READM[E].md'"  "glob-like filename isn't expanded to an allowlisted file"
+name_case ':(top)x.md'   "placeholder in ':(top)x.md'"   "pathspec-magic filename is read literally"
+name_case "$(printf 'caf\303\251.md')" "placeholder in 'caf" "non-ASCII filename is checked"
+name_case 'a b.md'       "placeholder in 'a b.md'"       "filename with a space is checked whole"
+name_case "$(printf 'a\tb.md')" "Unusual filename" "filename git must quote fails closed"
+# A filename is never code: under GNU sed, `#;e cmd;#` in an interpolated sed script
+# runs cmd. Expect the placeholder line reported verbatim and no PWNED file.
+name_case 'x#;e touch PWNED;#.md' "  x#;e touch PWNED;#.md: 1:+use [" "filename with sed syntax is reported, not run"
+if [ ! -e PWNED ] && [ ! -e "$tmp/PWNED" ]; then ok "filename with sed syntax runs nothing"
+else bad "filename with sed syntax ran a command (PWNED exists)"; fi
+r=$(make_repo); mkdir -p "$r/docs"; echo d > "$r/docs/$(printf 'caf\303\251.md')"; commit_on "$r" "docs: odd name T-128"
+out=$( cd "$r" && "$SH" scripts/ci-checks.sh "$b" "$h" 2>&1 ); rc=$?
+expect_closed "touches authored /docs/*" "non-ASCII /docs filename still needs consensus"
+rm -rf "$r"
+r=$(make_repo); mkdir -p "$r/docs"; echo d > "$r/docs/$(printf 'a\tb.md')"; commit_on "$r" "docs: tab name T-129"
+out=$( cd "$r" && "$SH" scripts/ci-checks.sh "$b" "$h" 2>&1 ); rc=$?
+expect_closed "touches authored /docs/*" "/docs filename git must quote still needs consensus"
+rm -rf "$r"
+
+# 25) Moving a file out of /docs is a /docs change (--no-renames: the delete shows),
+#     so it needs the consensus assertion like any other /docs edit.
+r=$(make_repo); mkdir -p "$r/docs"; echo d > "$r/docs/x.md"
+( cd "$r" && git add -A && git commit -qm "docs: add T-130
+
+unanimous-consensus: T-130" )
+mid=$(cd "$r" && git rev-parse HEAD)
+( cd "$r" && mkdir notes && git mv docs/x.md notes/x.md && git commit -qm "chore: move doc out T-131" )
+h=$(cd "$r" && git rev-parse HEAD)
+out=$( cd "$r" && "$SH" scripts/ci-checks.sh "$mid" "$h" 2>&1 ); rc=$?
+expect_closed "touches authored /docs/*" "moving a file out of /docs needs consensus"
 rm -rf "$r"
 
 echo

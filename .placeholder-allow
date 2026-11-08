@@ -25,6 +25,7 @@ scripts/ci-checks.sh
 scripts/test/test-ci-checks.sh
 .github/workflows/checks.yml
 .github/workflows-disabled/checks.yml
+.github/CODEOWNERS
 .placeholder-allow
 
 # Per-project templates (filled in during adoption; may carry placeholders meanwhile):

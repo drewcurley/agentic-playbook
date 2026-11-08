@@ -6,6 +6,9 @@
 # azure-pipelines.yml; GH Actions parked) — so --no-verify is not a viable bypass.
 
 set -e
+# Bytes, not characters: BSD sed/grep stop on invalid UTF-8, which binary content
+# in a --text diff is (T-014).
+LC_ALL=C; export LC_ALL
 
 red()  { printf "\033[0;31m%s\033[0m\n" "$*" >&2; }
 yel()  { printf "\033[0;33m%s\033[0m\n" "$*" >&2; }
@@ -27,11 +30,15 @@ esac
 added_only() { sed -n '/^+++/d;/^+/p'; }
 unchecked="Refusing to commit content that was not checked."
 
-staged_files=$(git diff --cached --name-only --diff-filter=ACMR) \
+# Names unquoted (core.quotePath=false) and renames as delete + add, so moved
+# content is scanned (T-014).
+staged_files=$(git -c core.quotePath=false diff --cached --no-renames --name-only --diff-filter=ACMR) \
   || fail "git diff --cached --name-only failed. $unchecked"
 [ -z "$staged_files" ] && exit 0
 
-staged_diff=$(git diff --cached --diff-filter=ACMR -U0) || fail "git diff --cached failed. $unchecked"
+# --text --no-textconv --no-ext-diff: .gitattributes (-diff, binary, textconv), an
+# external diff, or a NUL byte must not hide staged content from the scans (T-014).
+staged_diff=$(git diff --cached --text --no-textconv --no-ext-diff --no-renames --diff-filter=ACMR -U0) || fail "git diff --cached failed. $unchecked"
 added_lines=$(printf '%s\n' "$staged_diff" | added_only) || fail "Filtering the staged diff failed. $unchecked"
 
 # Is a path allowlisted for placeholders? (meta/template files — see .placeholder-allow)
@@ -47,22 +54,35 @@ placeholder_allowed() {
 }
 
 # 2) Unreplaced [insert ... here] placeholders — per file, skipping allowlisted paths.
+#    Split names on newlines only, never glob-expand them, and read each back as a
+#    literal path: else `a b.md`, `AGENT[S].md` or `:(top)x` is checked as some
+#    other path, or none (T-014). Names git still quotes can't be read back: block.
 placeholder_hit=0
+old_ifs=$IFS
+IFS='
+'
+set -f
 for f in $staged_files; do
+  case "$f" in \"*) fail "Unusual filename $f: git quotes it, so its placeholders can't be checked. Rename it." ;; esac
   placeholder_allowed "$f" && continue
-  f_diff=$(git diff --cached --diff-filter=ACMR -U0 -- "$f") || fail "git diff --cached -- '$f' failed. $unchecked"
+  f_diff=$(git --literal-pathspecs diff --cached --text --no-textconv --no-ext-diff --no-renames --diff-filter=ACMR -U0 -- "$f") || fail "git diff --cached -- '$f' failed. $unchecked"
   added=$(printf '%s\n' "$f_diff" | added_only) || fail "Filtering the staged diff of '$f' failed. $unchecked"
   rc=0
   printf '%s\n' "$added" | grep -qE '\[insert [^]]+ here\]' || rc=$?
   case "$rc" in
     0)
-      printf '%s\n' "$added" | grep -nE '\[insert [^]]+ here\]' | sed "s#^#$f: #" >&2
+      # Never put $f inside a sed script: a filename like `x#;e cmd;#` would run
+      # cmd under GNU sed (T-014). printf treats it as data.
+      printf '%s\n' "$added" | grep -nE '\[insert [^]]+ here\]' \
+        | while IFS= read -r hit; do printf '%s: %s\n' "$f" "$hit"; done >&2
       placeholder_hit=1
       ;;
     1) ;;
     *) fail "Placeholder scanner error (grep exit $rc) on '$f'. $unchecked" ;;
   esac
 done
+set +f
+IFS=$old_ifs
 [ "$placeholder_hit" = "1" ] && fail "Unreplaced [insert ... here] placeholder in staged content (not in an allowlisted template; see .placeholder-allow)."
 
 # 3) Basic secret scan on staged content

@@ -17,8 +17,17 @@
 #
 # Mirrors: .githooks/pre-commit (placeholders, secrets) + .githooks/commit-msg
 #          (task ID, /docs consensus). Keep the three in sync.
+#
+# Keep this ONE self-contained file (no sourcing siblings): PR builds extract just
+# this file from the target branch and run it (scripts/ci-pr-checks.sh, T-014).
+# CI_PLACEHOLDER_ALLOW=<file> replaces ./.placeholder-allow (ci-pr-checks.sh passes
+# the target branch's copy, so a PR can't allowlist itself); set but empty or
+# missing means nothing is allowlisted.
 
 set -u
+# Bytes, not characters: BSD sed/grep stop on invalid UTF-8, which binary content
+# in a --text diff is (T-014).
+LC_ALL=C; export LC_ALL
 
 base="${1:?usage: ci-checks.sh <base-sha> <head-sha>}"
 head="${2:?usage: ci-checks.sh <base-sha> <head-sha>}"
@@ -35,7 +44,8 @@ die() { printf 'CI-CHECK FAIL: %s Failing closed: the gates could not all run.\n
 # error used to read as an empty diff and pass every gate. Filters use sed, which
 # exits 0 on no match, so no `|| true` is needed to hide grep's exit 1.
 added_only()    { sed -n '/^+++/d;/^+/p'; }
-authored_docs() { sed -n '/^docs\/repos\//d;/^docs\//p'; }
+# A path git still quotes ("docs/a\tb.md") counts too, so quoting can't dodge the gate.
+authored_docs() { sed -n '/^"\{0,1\}docs\/repos\//d;/^"\{0,1\}docs\//p'; }
 
 # Resolve both ends to full SHAs; later calls use only these, so an argument can't
 # reach git as an option (one starting with '-' is refused outright).
@@ -62,11 +72,16 @@ else
 fi
 
 rng="$from..$head"
-full_diff=$(git diff "$from" "$head" -U0) || die "git diff $rng failed."
+# --text --no-textconv --no-ext-diff: a .gitattributes entry (-diff, binary, a
+# textconv driver), an external diff, or a NUL byte must not turn content into
+# "Binary files differ" or anything else the scans can't see (T-014).
+# --no-renames: a rename shows as delete + add, so the moved content is scanned
+# (a rename out of an allowlisted path would otherwise carry its placeholders along).
+full_diff=$(git diff --text --no-textconv --no-ext-diff --no-renames "$from" "$head" -U0) || die "git diff $rng failed."
 added=$(printf '%s\n' "$full_diff" | added_only) || die "Filtering the diff of $rng failed."
 
 # --- 1) Unreplaced [insert ... here] placeholders (allowlist-aware) ----------
-allow_file=".placeholder-allow"
+allow_file="${CI_PLACEHOLDER_ALLOW-.placeholder-allow}"
 allowed() {
   [ -f "$allow_file" ] || return 1
   while IFS= read -r pat; do
@@ -76,22 +91,39 @@ allowed() {
   done < "$allow_file"
   return 1
 }
-changed_files=$(git diff --name-only --diff-filter=ACMR "$from" "$head") || die "git diff --name-only $rng failed."
+# Filenames come from the PR. List them unquoted (core.quotePath=false), split on
+# newlines only, never glob-expand them (set -f), and read each back as a literal
+# path (--literal-pathspecs): otherwise `a b.md`, `AGENT[S].md`, `:(top)x` or
+# `café.md` is checked as some other path, or none (T-014). Names git still quotes
+# (tab, newline, quote, backslash) can't be read back reliably, so they fail.
+changed_files=$(git -c core.quotePath=false diff --no-renames --name-only --diff-filter=ACMR "$from" "$head") \
+  || die "git diff --name-only $rng failed."
+old_ifs=$IFS
+IFS='
+'
+set -f
 for f in $changed_files; do
+  case "$f" in \"*) err "Unusual filename $f: git quotes it, so its placeholders can't be checked. Rename it."; continue ;; esac
   allowed "$f" && continue
-  f_diff=$(git diff "$from" "$head" -U0 -- "$f") || die "git diff $rng -- '$f' failed."
+  f_diff=$(git --literal-pathspecs diff --text --no-textconv --no-ext-diff --no-renames "$from" "$head" -U0 -- "$f") \
+    || die "git diff $rng -- '$f' failed."
   f_added=$(printf '%s\n' "$f_diff" | added_only) || die "Filtering the diff of '$f' failed."
   ph_rc=0
   printf '%s\n' "$f_added" | grep -qE '\[insert [^]]+ here\]' || ph_rc=$?
   case "$ph_rc" in
     0)
-      printf '%s\n' "$f_added" | grep -nE '\[insert [^]]+ here\]' | sed "s#^#  $f: #" >&2
-      err "Unreplaced [insert ... here] placeholder in '$f' (not allowlisted; see .placeholder-allow)."
+      # Never put $f inside a sed script: a filename like `x#;e cmd;#` would run
+      # cmd under GNU sed (T-014). printf treats it as data.
+      printf '%s\n' "$f_added" | grep -nE '\[insert [^]]+ here\]' \
+        | while IFS= read -r hit; do printf '  %s: %s\n' "$f" "$hit"; done >&2
+      err "Unreplaced [insert ... here] placeholder in '$f' (not allowlisted; see .placeholder-allow).${CI_PLACEHOLDER_ALLOW+ The allowlist is read from the target branch, so a new entry must land in an earlier PR.}"
       ;;
     1) ;;
     *) err "Placeholder scanner error (grep exit $ph_rc) on '$f'. Failing closed: file was not scanned." ;;
   esac
 done
+set +f
+IFS=$old_ifs
 
 # --- 2) Basic secret scan ----------------------------------------------------
 secret_patterns='AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[ps]_[A-Za-z0-9]{36,}|xox[abprs]-[A-Za-z0-9-]+|sk-[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}'
@@ -123,11 +155,11 @@ done
 # content was already gated by consensus in its SOURCE repo — re-gating the mirror
 # would demand an assertion on every routine rollup refresh. So a commit needs the
 # assertion only if it touches authored /docs files OUTSIDE docs/repos/.
-all_changed=$(git diff --name-only "$from" "$head") || die "git diff --name-only $rng failed."
+all_changed=$(git -c core.quotePath=false diff --no-renames --name-only "$from" "$head") || die "git diff --name-only $rng failed."
 docs_changed=$(printf '%s\n' "$all_changed" | authored_docs) || die "Filtering the changed-file list failed."
 if [ -n "$docs_changed" ]; then
   for sha in $commits; do
-    sha_files=$(git show --name-only --pretty="" "$sha") || die "git show $sha failed."
+    sha_files=$(git -c core.quotePath=false show --no-renames --name-only --pretty="" "$sha") || die "git show $sha failed."
     files=$(printf '%s\n' "$sha_files" | authored_docs) || die "Filtering the files of $sha failed."
     [ -z "$files" ] && continue
     msg=$(git log -1 --format=%B "$sha") || die "git log -1 $sha failed."
