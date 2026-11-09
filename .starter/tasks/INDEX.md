@@ -40,6 +40,7 @@
 | [T-017](./T-017.md) | Narrow the push prompt to protected branches | devops | — | chore/t-017-narrow-push-prompt | #9 | .starter/tasks/T-017.md#review-artifact |
 | [T-018](./T-018.md) | Make the starter distributable: license, hook modes, sync notes | devops | — | chore/t-018-distribution-ready | #10 | .starter/tasks/T-018.md#review-artifact |
 | [T-019](./T-019.md) | Make the ledger test independent of file listing order | devops | — | chore/t-019-ledger-test-order | #13 | .starter/tasks/T-019.md#review-artifact |
+| [T-020](./T-020.md) | Tell agents to wait for CI themselves | devops | — | chore/t-020-carry-ci-waits | #14 | .starter/tasks/T-020.md#review-artifact |
 
 ## Cancelled / Superseded
 
