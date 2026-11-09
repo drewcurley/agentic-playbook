@@ -108,7 +108,7 @@ def chip(s, x, y, w, txt, fill=PANEL2, fg=WHITE, size=12, h=0.42, bold=True):
     box(s, x, y, w, h, fill=fill)
     text(s, x, y, w, h, [[(txt, size, fg, bold)]], align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
 
-TOTAL = 26   # asserted against SLIDE_NO at the end
+TOTAL = 27   # asserted against SLIDE_NO at the end
 
 def section(s, eyebrow, big, sub, accent=TEAL):
     """Full-bleed section divider."""
@@ -170,7 +170,7 @@ s = slide()
 kicker(s, "The solution in one picture"); title(s, "Three pillars, working together")
 pillars = [
     ("LIVING MEMORY", "/docs as source of truth", "Architecture, contracts, decisions — complete enough that an agent reading only /docs can commit safely.", TEAL),
-    ("THE AGENT TEAM", "9 specialists, 3 rounds", "Every non-trivial change is reviewed by domain experts with non-negotiable redlines + 7 strategic lenses.", AMBER),
+    ("THE AGENT TEAM", "9 specialists, 3 rounds", "Every non-trivial change is reviewed by domain experts with non-negotiable redlines; major decisions also clear 7 strategic lenses.", AMBER),
     ("ENFORCEMENT", "hooks · CI · branch rules", "Mechanical gates so the conventions are not optional — even under deadline pressure.", GREEN),
 ]
 cw = 3.75; gap = 0.45; x0 = 0.9; cy = 2.15; ch = 3.7
@@ -247,7 +247,7 @@ footer(s, "The agent team")
 # 6 — REVIEW CYCLE + LENSES
 # ===========================================================================
 s = slide()
-kicker(s, "How review works"); title(s, "Three rounds, then seven lenses for big calls")
+kicker(s, "How review works"); title(s, "Three rounds, plus seven lenses for big calls")
 rounds = [
     ("ROUND 1 · Analysis","Analyst · Architect · Data Eng","scope, security, schema"),
     ("ROUND 2 · Implementation","Backend · Frontend · UX","feasibility, user impact"),
@@ -288,7 +288,7 @@ s = slide()
 kicker(s, "Pillar 3 — Enforcement"); title(s, "Conventions that aren't optional")
 layers = [
     ("LOCAL  ·  git hooks","No commits to main · no placeholders · secret scan · Task-ID required · /docs consensus assertion","Runs on every commit & push"),
-    ("SERVER  ·  CI mirror","Same checks run server-side (Azure DevOps now; GitHub Actions parked) — shared scripts/ci-checks.sh","--no-verify can't bypass this"),
+    ("SERVER  ·  CI mirror","Same checks run server-side (Azure DevOps now; GitHub Actions parked). These checks come from the branch a PR merges into, so loosening them takes a visible edit.","--no-verify can't bypass this, once CI is required"),
     ("BRANCH  ·  protection","PR required · no force-push · admins included · CI check required · human approval (team)","The keystone — makes the rest real"),
 ]
 y=2.1; rh=1.3
@@ -301,7 +301,51 @@ for k,(h,d,tag) in enumerate(layers):
         [(d, 12.5, MUTE)],
     ], space_after=4, line_spacing=1.05)
     text(s, 10.0, cy, 2.4, rh, [[(tag, 11.5, AMBER, True)]], anchor=MSO_ANCHOR.MIDDLE)
+text(s, 0.9, 6.5, 11.5, 0.5, [[("The checks fail closed: if a scan or git call errors, the commit or build is blocked — once hooks are installed and CI is required.", 13, MUTE, False, True)]])
 footer(s, "Enforcement")
+
+# ===========================================================================
+# 7b — HOW A CHANGE EARNS ITS WAY TO MAIN  (the join: which gate guards which stage)
+# ===========================================================================
+s = slide()
+kicker(s, "The full review path"); title(s, "How a change earns its way to main")
+CW, GAP, X0 = 2.65, 0.3167, 0.9
+ax = [X0 + i * (CW + GAP) for i in range(4)]
+ROW_A_Y, ROW_A_H = 2.15, 1.20
+ROW_B_Y, ROW_B_H = 3.65, 1.85
+# rail first, so the four cards occlude it and only the gaps read as connector
+box(s, X0, ROW_A_Y + ROW_A_H / 2 - 0.03, 11.55, 0.06, fill=TEALDK, shape=MSO_SHAPE.RECTANGLE)
+stages = [("Plan","Task file · acceptance criteria · branch"),("Build","Implement the approved plan"),
+          ("Verify","Automated tests, every path"),("Ship","Commit → pull request → merge")]
+for i, (name, body) in enumerate(stages):
+    box(s, ax[i], ROW_A_Y, CW, ROW_A_H, fill=PANEL2)
+    text(s, ax[i] + 0.2, ROW_A_Y + 0.18, CW - 0.4, 0.34, [[(name, 16, WHITE, True)]])
+    text(s, ax[i] + 0.2, ROW_A_Y + 0.60, CW - 0.4, 0.52, [[(body, 12, MUTE)]], line_spacing=1.05)
+gates = [("REVIEW GATE","Plan review","Rounds 1 → 2 → 3, signed off before any code"),
+         ("REVIEW GATE","Build review","Rounds 1 → 2 → 3 again, on the build"),
+         ("TEST GATE","Before any commit","Tests pass · regression-safety check recorded")]
+for i, (eyebrow, head, body) in enumerate(gates):
+    box(s, ax[i], ROW_B_Y, CW, ROW_B_H, fill=PANEL)
+    box(s, ax[i], ROW_B_Y, CW, 0.10, fill=TEAL, shape=MSO_SHAPE.RECTANGLE)
+    text(s, ax[i] + 0.2, ROW_B_Y + 0.24, CW - 0.4, ROW_B_H - 0.4, [
+        [(eyebrow, 10.5, TEAL, True)], [(head, 13.5, WHITE, True)], [(body, 12, MUTE)],
+    ], space_after=4, line_spacing=1.05)
+box(s, ax[3], ROW_B_Y, CW, ROW_B_H, fill=PANEL)
+box(s, ax[3], ROW_B_Y, CW, 0.10, fill=GREEN, shape=MSO_SHAPE.RECTANGLE)
+text(s, ax[3] + 0.2, ROW_B_Y + 0.24, CW - 0.4, ROW_B_H - 0.4, [
+    [("MACHINE GATE", 10.5, GREEN, True)],
+    [("hooks · CI mirror · branch protection", 12, WHITE)],
+    [("once wired (ADOPTING.md)", 12, MUTE)],
+    [("REVIEW GATE", 10.5, TEAL, True)],
+    [("a human approver (team)", 12, WHITE)],
+], space_after=3, line_spacing=1.02)
+box(s, X0, 5.70, 11.55, 0.74, fill=PANEL2)
+text(s, X0 + 0.3, 5.79, 11.0, 0.58, [
+    [("Read before anything:  ", 13.5, AMBER, True), ("AGENTS.md → /docs + the tasks ledger.", 13.5, WHITE)],
+    [("An empty /docs stops feature work: building it is the session's only job.", 13, MUTE)],
+], space_after=3, line_spacing=1.05)
+text(s, X0, 6.48, 11.55, 0.50, [[("A gate that says no holds the change there until the blocker is resolved; it doesn't kill the change.", 13, MUTE, False, True)]])
+footer(s, "How a change earns its way to main")
 
 # ===========================================================================
 # 8 — TWO SHAPES (single vs multi-repo)
@@ -325,10 +369,11 @@ box(s, 7.15, 3.35, 4.9, 2.5, fill=PANEL2)
 text(s, 7.4, 3.5, 4.5, 2.3, [
     [("playbook/   ← shared, governs all", 12.5, WHITE, True)],
     [("  integration-map.md  ★ cross-repo seams", 12, TEAL)],
+    [("  docs/repos/  ← generated copy of each repo's /docs", 12, TEAL)],
     [("web/   api/   infra/   (siblings)", 12.5, WHITE)],
     [("  each: own /docs · hooks · CI", 12, MUTE)],
 ], space_after=6, line_spacing=1.12)
-text(s, 0.9, 6.35, 11.5, 0.5, [[("Multi-repo superpower: change a contract in one repo and the agent sees "
+text(s, 0.9, 6.35, 11.5, 0.55, [[("Multi-repo superpower: change a contract in one repo and the agent sees "
     "which sibling repos consume it — before it breaks them.", 13.5, WHITE, False, True)]])
 footer(s, "Single vs. multi-repo")
 
@@ -357,8 +402,8 @@ for k,(num,h,d) in enumerate(steps):
     if k<4:
         text(s, cx+cw-0.06, cy, 0.3, ch, [[("›", 22, LINE)]], anchor=MSO_ANCHOR.MIDDLE)
 text(s, 0.9, 5.5, 11.5, 0.8, [[("Hard gate: ", 14, AMBER, True),
-    ("no commit touching a documented contract merges without updating contracts.md "
-     "in the same PR. Living memory can't lag the code.", 14, WHITE)]], line_spacing=1.1)
+    ("a change to a documented contract must update contracts.md in the same PR. "
+     "Reviewers enforce this; no script checks it.", 14, WHITE)]], line_spacing=1.1)
 footer(s, "Safe commits")
 
 # ===========================================================================
@@ -367,8 +412,8 @@ footer(s, "Safe commits")
 s = slide()
 kicker(s, "Clone → ready"); title(s, "Six steps from fork to enforced")
 journey = [
-    ("Fork / copy","Use as template; keep the layout"),
-    ("Replace placeholders","grep -rl '[insert' — stack, handles, names"),
+    ("Fork / copy","Keep the layout. Delete .starter/ (template history) if you'll never pull updates."),
+    ("Replace placeholders","grep -rl --exclude-dir=.starter '\\[" "insert ' .  — stack, handles, names"),  # split so that grep doesn't list this file
     ("Install hooks","setup-hooks.sh  (or setup-workspace.sh)"),
     ("Wire CI","Azure DevOps pipeline + PR build validation"),
     ("Protect main","PR required · approvals to match headcount"),
@@ -382,8 +427,8 @@ for k,(h,d) in enumerate(journey):
     box(s, 1.8, cy, 10.65, rh, fill=PANEL)
     text(s, 2.1, cy, 4.6, rh, [[(h, 15, WHITE, True)]], anchor=MSO_ANCHOR.MIDDLE)
     text(s, 6.6, cy, 5.7, rh, [[(d, 12.5, MUTE)]], anchor=MSO_ANCHOR.MIDDLE)
-text(s, 0.9, 6.95, 11.5, 0.4, [[("One runbook: ", 12, MUTE, False, True),("ADOPTING.md", 12, AMBER, True, True),
-    ("  — ordered, with don't-brick-the-repo warnings.", 12, MUTE, False, True)]])
+text(s, 0.9, 6.70, 11.5, 0.28, [[("One runbook: ", 12, MUTE, False, True),("ADOPTING.md", 12, AMBER, True, True),
+    ("  — ordered, with don't-brick-the-repo warnings.", 12, MUTE, False, True)]], space_after=0)
 footer(s, "The journey")
 
 # ===========================================================================
@@ -666,7 +711,7 @@ recap = [
     "Every agent starts grounded in the same living memory — no cold starts, no invented facts.",
     "contracts.md + the regression-safety gate mean changes are made with eyes open to blast radius.",
     "9 specialists + 3 rounds + 7 lenses catch what a single pass misses.",
-    "Hooks + CI + branch protection make the conventions mechanical, not aspirational.",
+    "Once wired, hooks + CI + branch protection make the core gates mechanical; review enforces the rest.",
     "One framework, single- or multi-repo, solo founder to enterprise team.",
 ]
 for k,t in enumerate(recap):
@@ -692,7 +737,7 @@ box(s, 0.9, 4.5, 11.55, 1.4, fill=PANEL)
 text(s, 1.25, 4.66, 11.0, 1.1, [
     [("Read first:  ", 14, MUTE),("ADOPTING.md", 14, AMBER, True),("  (fork → enforced)        ", 14, MUTE),
      ("AGENTS.md", 14, AMBER, True),("  (the canonical conventions)", 14, MUTE)],
-    [("Then just start your agent — it reads the rules and bootstraps the rest.", 13.5, WHITE)],
+    [("Then start your agent: it reads the rules and builds /docs. Until CI and branch protection are on, the gates are advisory.", 13.5, WHITE)],
 ], space_after=8, line_spacing=1.2)
 text(s, 0.9, 6.5, 11.5, 0.5, [[("Agentic Starter  —  conventions + memory + enforcement, so AI you can trust.", 13, MUTE, False, True)]])
 
