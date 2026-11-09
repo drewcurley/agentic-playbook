@@ -22,6 +22,7 @@
 # `*` above already requires a default reviewer; this routes gate changes further.
 /azure-pipelines.yml            @[insert devops-team here] @[insert security-lead handle here]
 /scripts/ci-*.sh                @[insert devops-team here] @[insert security-lead handle here]
+/scripts/requirements-deck.*    @[insert devops-team here] @[insert security-lead handle here]
 /.githooks/                     @[insert devops-team here] @[insert security-lead handle here]
 /.placeholder-allow             @[insert devops-team here] @[insert security-lead handle here]
 /.gitattributes                 @[insert devops-team here] @[insert security-lead handle here]

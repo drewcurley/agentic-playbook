@@ -67,6 +67,38 @@ jobs:
       - name: aggregate-docs.sh fixture tests
         run: sh scripts/test/test-aggregate-docs.sh
 
+  # Third-party Python packages run here and nowhere else (starter T-016): no credentials,
+  # no secrets, no artifacts, and no job waits on this one. scripts/test/test-deck.sh checks that.
+  deck:
+    name: overview deck (build + compare)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: install deck build dependencies
+        run: |
+          set -e
+          if [ ! -f scripts/build_deck.py ]; then
+            echo "SKIP: scripts/build_deck.py is gone; not installing deck dependencies."
+            exit 0
+          fi
+          python3 --version
+          python3 -m venv "$RUNNER_TEMP/deck-venv"
+          "$RUNNER_TEMP/deck-venv/bin/python" -m pip install \
+            --disable-pip-version-check --no-input --require-hashes --only-binary :all: \
+            -r scripts/requirements-deck.txt
+          "$RUNNER_TEMP/deck-venv/bin/python" -m pip freeze
+
+      - name: overview deck fixture tests
+        env:
+          DECK_BUILD_REQUIRED: '1'
+          DECK_PYTHON: ${{ runner.temp }}/deck-venv/bin/python
+        run: sh scripts/test/test-deck.sh
+
   procedure:
     name: procedure checks
     runs-on: ubuntu-latest
