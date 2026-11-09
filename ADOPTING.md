@@ -121,9 +121,11 @@ active CI is Azure DevOps:
 
 > If/when GitHub Actions is approved for your org, instead do:
 > `git mv .github/workflows-disabled/checks.yml .github/workflows/` and re-enable
-> CodeQL in repo settings. No other setup is needed. Each job reports as its own check, so
-> require all three: `procedure checks`, `shell scripts (lint + test)` and
-> `overview deck (build + compare)`.
+> CodeQL in repo settings. Confirm a run appears on your first PR; if none does, push a
+> commit to that PR. Each job reports as its own check, so require all three:
+> `procedure checks`, `shell scripts (lint + test)` and
+> `overview deck (build + compare)`. A run that never starts blocks nothing until they're
+> required.
 
 ## 5. Protect `main` (the keystone) — do this AFTER step 4
 Branch protection is what makes every other gate real. Configure on GitHub:
