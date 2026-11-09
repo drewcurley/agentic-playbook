@@ -4,7 +4,7 @@
 **Status:** PASS WITH ITEMS
 **Date:** 2026-10-26
 **Type:** Major decision, plan only (no code). Full 9-agent cycle, 7 strategic lenses, and unanimous `/docs/*` consensus (ADR 0003).
-**Reviewed:** `docs/decisions/0003-executable-specs-and-evidence-gates.md`, `tasks/T-009.md`, `tasks/T-009.1.md` … `T-009.5.md`, `tasks/T-010.md`, `tasks/T-011.md`.
+**Reviewed:** `.starter/docs/decisions/0003-executable-specs-and-evidence-gates.md`, `.starter/tasks/T-009.md`, `.starter/tasks/T-009.1.md` … `T-009.5.md`, `.starter/tasks/T-010.md`, `.starter/tasks/T-011.md`.
 **Method:** each specialist ran as a separate read-only agent. Rounds ran in order, and no round started until the previous round's blockers had cleared. Every BLOCK was re-checked by the agent that raised it.
 
 ## Summary

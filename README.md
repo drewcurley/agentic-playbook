@@ -29,8 +29,10 @@ The fast path from fork to first agent session. Everything else in this README a
 
 ```sh
 # 1. Copy this starter into your repo (or use it as a template).
+#    Will you pull future updates from this starter? No: git rm -r .starter
+#    (the starter's own history). Yes / not sure: keep it — agents ignore it. (ADOPTING.md § 1)
 # 2. Replace placeholders:
-grep -rl '\[insert ' . | xargs $EDITOR        # fill in stack, handles, product name
+grep -rl --exclude-dir=.starter '\[insert ' . | xargs $EDITOR   # fill in stack, handles, product name
 # 3. Install the procedure hooks (one-time):
 sh scripts/setup-hooks.sh
 # 4. Start your agent (claude / codex / …). It reads AGENTS.md, then bootstraps /docs on first run.
@@ -98,6 +100,8 @@ It is calibrated for **high-stakes, worldwide, enterprise** software work. There
 │   ├── T-001.md                    # Parent: bootstrap /docs/ folder.
 │   ├── T-001.1.md … T-001.17.md    # Seeded bootstrap subtasks (Tier 1 + Tier 2; T-001.17 = contracts.md).
 │   └── T-002.md                    # Seeded: adopt the workspace model (multi-repo only).
+├── .starter/                       # NOT your project's: the upstream starter's own tasks/ADRs/reviews.
+│                                   # Delete it if you won't sync upstream; agents ignore it either way.
 └── docs/
     ├── README.md                   # Convention for the project's living docs + the Grounding & Completeness Protocol.
     │                               # Agents read every file in /docs/ at session start.

@@ -57,7 +57,7 @@ if [ "$rc" -eq 1 ]; then ok "check flags stale after source change"; else bad "s
 ( cd "$r/web" && echo "# extra" > docs/extra.md && git add -A && git commit -qm "add extra T-002" )
 run "$r" "" >/dev/null
 if [ -f "$r/playbook/docs/repos/web/extra.md" ]; then ok "addition mirrored"; else bad "addition not mirrored"; fi
-( cd "$r/web" && git rm -q docs/extra.md && git commit -qm "rm extra T-003" )
+( cd "$r/web" && git rm -q docs/extra.md && git commit -qm "rm extra T-903" )
 run "$r" "" >/dev/null
 if [ ! -f "$r/playbook/docs/repos/web/extra.md" ]; then ok "deletion propagates to mirror"; else bad "deleted file lingers in mirror"; fi
 rm -rf "$r"

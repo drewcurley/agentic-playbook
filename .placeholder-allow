@@ -25,6 +25,7 @@ scripts/ci-checks.sh
 scripts/test/test-ci-checks.sh
 .github/workflows/checks.yml
 .github/workflows-disabled/checks.yml
+.github/CODEOWNERS
 .placeholder-allow
 
 # Per-project templates (filled in during adoption; may carry placeholders meanwhile):
@@ -38,4 +39,3 @@ tasks/_TEMPLATE.md
 # Seeded bootstrap/adoption tasks reference placeholders by name:
 tasks/T-001*.md
 tasks/T-002.md
-tasks/T-003.md

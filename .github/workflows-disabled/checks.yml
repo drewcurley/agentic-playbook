@@ -11,6 +11,9 @@ name: procedure-checks
 # TO RE-ENABLE when Actions is approved:
 #   git mv .github/workflows-disabled/checks.yml .github/workflows/checks.yml
 #   (and, if desired, re-enable the CodeQL default-setup in repo settings.)
+# Keep the `pull_request` trigger: do NOT switch to `pull_request_target` until
+# the gate-trust follow-up in starter T-014 lands (contents: read permissions,
+# persist-credentials: false, PR content read only as data, never executed).
 # Then retire or keep azure-pipelines.yml per your team's choice.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -40,8 +43,61 @@ jobs:
       - name: ci-checks.sh fixture tests
         run: sh scripts/test/test-ci-checks.sh
 
+      - name: pre-commit hook fixture tests
+        run: sh scripts/test/test-pre-commit.sh
+
+      - name: commit-msg hook fixture tests
+        run: sh scripts/test/test-commit-msg.sh
+
+      - name: ci-base.sh fixture tests
+        run: sh scripts/test/test-ci-base.sh
+
+      - name: ci-pr-checks.sh fixture tests
+        run: sh scripts/test/test-ci-pr-checks.sh
+
+      - name: task ledger invariants
+        run: sh scripts/test/test-task-ledgers.sh
+
+      - name: every fixture suite runs in CI
+        run: sh scripts/test/test-ci-wiring.sh
+
+      - name: setup-hooks.sh fixture tests
+        run: sh scripts/test/test-setup-hooks.sh
+
       - name: aggregate-docs.sh fixture tests
         run: sh scripts/test/test-aggregate-docs.sh
+
+  # Third-party Python packages run here and nowhere else (starter T-016): no credentials,
+  # no secrets, no artifacts, and no job waits on this one. scripts/test/test-deck.sh checks that.
+  deck:
+    name: overview deck (build + compare)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: install deck build dependencies
+        run: |
+          set -e
+          if [ ! -f scripts/build_deck.py ]; then
+            echo "SKIP: scripts/build_deck.py is gone; not installing deck dependencies."
+            exit 0
+          fi
+          python3 --version
+          python3 -m venv "$RUNNER_TEMP/deck-venv"
+          "$RUNNER_TEMP/deck-venv/bin/python" -m pip install \
+            --disable-pip-version-check --no-input --require-hashes --only-binary :all: \
+            -r scripts/requirements-deck.txt
+          "$RUNNER_TEMP/deck-venv/bin/python" -m pip freeze
+
+      - name: overview deck fixture tests
+        env:
+          DECK_BUILD_REQUIRED: '1'
+          DECK_PYTHON: ${{ runner.temp }}/deck-venv/bin/python
+        run: sh scripts/test/test-deck.sh
 
   procedure:
     name: procedure checks
@@ -53,17 +109,61 @@ jobs:
 
       - name: Determine diff range
         id: range
+        env:
+          BEFORE: ${{ github.event.before }}
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
             echo "head=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
           else
-            echo "base=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+            # A branch's first push has before=0000…; ci-base.sh maps that to HEAD~1,
+            # or the empty tree for a root commit (ci-checks.sh would rightly fail
+            # closed on the zeros — starter T-013).
+            base=$(sh scripts/ci-base.sh "$BEFORE")
+            echo "base=$base" >> "$GITHUB_OUTPUT"
             echo "head=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Procedure checks (mirror of .githooks/)
-        run: sh scripts/ci-checks.sh "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+        env:
+          EVENT: ${{ github.event_name }}
+          TARGET_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE: ${{ steps.range.outputs.base }}
+          HEAD_SHA: ${{ steps.range.outputs.head }}
+        run: |
+          head=$HEAD_SHA
+          if [ "$EVENT" = "pull_request" ]; then
+            # PR build: run the TARGET branch's gate (starter T-014).
+            # The base SHA recorded when the PR event fired (main may have moved since).
+            target_sha=$(git rev-parse --verify "$TARGET_SHA^{commit}")
+            echo "PR build: target $target_sha, head $head"
+            # BEGIN trusted-gate (starter T-014). Keep identical in azure-pipelines.yml and
+            # .github/workflows-disabled/checks.yml; scripts/test/test-ci-pr-checks.sh runs it.
+            # Takes ci-pr-checks.sh from the TARGET branch, so a PR can't swap the gate out by
+            # editing it; the PR's own copy runs only while the target has none (bootstrap).
+            warn='WARNING:'
+            [ -z "${TF_BUILD:-}" ] || warn='##[warning]'
+            [ -z "${GITHUB_ACTIONS:-}" ] || warn='::warning::'
+            runner=$(mktemp)
+            trap 'rm -f "$runner"' EXIT
+            runner_entry=$(git ls-tree --full-tree "$target_sha" -- scripts/ci-pr-checks.sh)
+            case "$runner_entry" in
+              '100644 blob '*|'100755 blob '*)
+                echo "Gate runner: the target's scripts/ci-pr-checks.sh ($runner_entry)"
+                git cat-file blob "$target_sha:scripts/ci-pr-checks.sh" > "$runner" ;;
+              '')
+                echo "$warn the target branch has no scripts/ci-pr-checks.sh; running this PR's copy (bootstrap only)."
+                cp scripts/ci-pr-checks.sh "$runner" ;;
+              *)
+                echo "$warn the target's scripts/ci-pr-checks.sh is not a regular file. Failing closed."
+                exit 1 ;;
+            esac
+            sh "$runner" "$target_sha" "$head"
+            # END trusted-gate
+          else
+            echo "Diff range: $BASE...$head"
+            sh scripts/ci-checks.sh "$BASE" "$head"
+          fi
 
       - name: pull request body must use the project template
         if: github.event_name == 'pull_request'

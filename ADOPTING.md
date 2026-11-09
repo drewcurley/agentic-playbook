@@ -15,9 +15,57 @@ bypasses all of it.
 ## 1. Fork / copy the repo
 Use it as a template or copy the tree into a fresh repo. Keep the directory layout.
 
+**Then decide about `.starter/`: will you pull future updates from this starter?**
+- **No** (template copy, no upstream sync): `git rm -r .starter` in your first PR. It is the
+  starter's own task and decision history, and nothing depends on it.
+- **Yes, or not sure:** keep it. Agents ignore it (`AGENTS.md` session start), and deleting
+  it would cause a conflict on every sync. You can delete it later. Pick "keep" if you might
+  ever add the starter as an upstream remote.
+
+**Then decide about the overview deck.** It describes this starter, not your project, and
+nothing depends on it. To drop it, remove all three files in one PR:
+`git rm Agentic-Starter-Overview.pptx scripts/build_deck.py scripts/requirements-deck.txt`.
+Keep `scripts/test/test-deck.sh` and its CI job: CI then installs nothing and the suite
+prints a `SKIP:` line. Removing only some of the three fails the suite. If you delete the
+suite as well, remove the `deck` job from both CI files. Under GitHub Actions, also remove
+`overview deck (build + compare)` from the required checks.
+
+Your `tasks/` and `docs/` start clean: the docs-bootstrap seeds (`T-001*`, `T-002`) plus
+templates. Code and docs that cite **"starter T-0NN"** mean the upstream repo's
+`.starter/tasks/T-0NN.md`, not your own T-0NN. Both ledgers use `T-NNN` IDs, so in a synced
+repo `git log --grep T-NNN` can match starter commits too.
+
+**Existing forks only: syncing across this change (starter T-015).** Upstream moved its own
+history out of `tasks/` and `docs/` into `.starter/`. If the sync conflicts:
+
+- **`tasks/INDEX.md`:** delete the rows for tasks whose files now live in `.starter/tasks/`
+  and keep your own.
+- **A modify/delete conflict on a starter task, ADR or review file:** keep the file at its
+  new path under `.starter/`, even if you had deleted it before. Those files are inert, and
+  the ledger test checks that the folder is complete. If you don't want the starter's history
+  at all, remove the whole folder instead: `git rm -r .starter`.
+
+The sync also adds two CI steps:
+
+- `scripts/test/test-task-ledgers.sh` fails if a seed task (`tasks/T-001*.md`,
+  `tasks/T-002.md`) is missing: restore it from upstream and set `state: cancelled` instead
+  of deleting it. While you keep `.starter/`, it also checks that the shipped docs don't
+  point into `.starter/` at a file that isn't there, or at a starter file's old path.
+- `scripts/test/test-ci-wiring.sh` fails if any `scripts/test/test-*.sh` isn't a step in
+  both `azure-pipelines.yml` and the GitHub workflow, written `sh scripts/test/<name>.sh`.
+  If you added suites of your own, wire them into both files that way.
+
+**Existing forks only: syncing the deck refresh (starter T-016).** CI gains a `deck` job
+that needs Python 3 with `venv`, and access to PyPI or to your own index through
+`PIP_INDEX_URL`. If you changed the deck, the suite fails until you drop it as above, or
+move your edits into `scripts/build_deck.py`, update the expected values in `test-deck.sh`,
+and regenerate from the repo root:
+`python3 -m venv ../deck-venv && ../deck-venv/bin/python -m pip install --require-hashes --only-binary :all: -r scripts/requirements-deck.txt && ../deck-venv/bin/python scripts/build_deck.py`.
+A PyPI outage turns the required check red: re-run it, and don't use the § 5 break-glass.
+
 ## 2. Replace every placeholder
 ```sh
-grep -rl '\[insert ' .          # find them all
+grep -rl --exclude-dir=.starter '\[insert ' .   # find them all
 ```
 Fill in stack, product name, and the **handles in `.github/CODEOWNERS`** (real GitHub
 teams/users — these route human review). The pre-commit hook blocks any unreplaced
@@ -41,10 +89,27 @@ active CI is Azure DevOps:
    → Build Validation** on `main`, pointing at the pipeline. Without this, PRs get
    no CI and the gate never runs.
 3. (Optional) set a `GITHUB_TOKEN` pipeline secret to enable the PR-body template check.
+4. **Land `scripts/` on `main` before requiring the check.** A PR build runs the
+   gate from the *target* branch (`scripts/ci-pr-checks.sh`, starter T-014), so it fails
+   closed if `main` has no `scripts/ci-checks.sh` yet. Merge the starter's files
+   first, then turn on Build Validation.
+5. **Fork PRs** (pipeline → Triggers → Pull request validation): leave **"Make
+   secrets available to builds of forks" off** and require a team member's comment
+   before a fork build runs. The checkout uses `persistCredentials: true`, so a
+   build's job token is visible to the pipeline YAML — which a PR can edit.
+6. **The `deck` job runs five third-party Python packages from PyPI** (hash-locked in
+   `scripts/requirements-deck.txt`). It keeps no git credentials and maps no secrets, but
+   Azure's job token still exists on the agent. In Project Settings → Pipelines → Settings,
+   limit job authorization scope to the current project, and keep the build identity
+   read-only on this repo. To use a mirror, set `PIP_INDEX_URL` as a non-secret pipeline
+   variable pointing at an index that needs no login; the hashes still apply. On a
+   self-hosted pool the job loses the per-job VM isolation it relies on, so keep it on
+   hosted agents or drop the deck (§ 1).
 
 > If/when GitHub Actions is approved for your org, instead do:
 > `git mv .github/workflows-disabled/checks.yml .github/workflows/` and re-enable
-> CodeQL in repo settings — then the check is `procedure-checks` with zero setup.
+> CodeQL in repo settings — then the check is `procedure-checks` with zero setup. Each job
+> reports as its own check, so require `overview deck (build + compare)` too.
 
 ## 5. Protect `main` (the keystone) — do this AFTER step 4
 Branch protection is what makes every other gate real. Configure on GitHub:
@@ -66,6 +131,31 @@ Branch protection is what makes every other gate real. Configure on GitHub:
 > and turn on "Require review from Code Owners"** — that restores the human peer-review
 > gate. This is the one protection setting that scales with team size; everything else
 > stays the same.
+
+> **What CI can't protect on its own.** A PR build runs the PR's own pipeline YAML,
+> and no file in the repo can stop a PR from editing it. The gate logic and the
+> placeholder allowlist come from `main` (`scripts/ci-pr-checks.sh`), so weakening
+> them takes a visible edit to the YAML or `scripts/ci-*.sh` — and `CODEOWNERS`
+> routes those gate files to the devops team + security lead. That only binds once
+> **"Require review from Code Owners"** is on; a solo repo relies on its one
+> maintainer reading gate-file diffs. Consequences to know:
+> - A change to `.placeholder-allow` or `scripts/ci-checks.sh` takes effect on the
+>   **next** PR, not the one that makes it. Land an allowlist entry before the file
+>   that needs it.
+> - Once you've filled in `.github/CODEOWNERS`, remove its line from
+>   `.placeholder-allow`, so a stray placeholder there gets caught.
+>
+> - The gates don't see Git LFS content (only the pointer is in git) or submodule
+>   content (only the commit SHA); scan those where they live.
+>
+> **Break-glass (the gate on `main` itself is broken).** Because PRs are judged by
+> `main`'s gate, a PR that fixes a broken gate can be blocked by it. An admin
+> temporarily removes the required check — in GitHub (Settings → Branches) **and**
+> in Azure DevOps (Branch policies → Build Validation), wherever it is required —
+> runs the *fixed* `scripts/ci-checks.sh <base> <head>` by hand against the fix PR
+> and pastes the output into the fix's task file, merges the fix PR with the usual
+> reviews, and restores the check immediately. Record who, when and why in that
+> task file. Never bypass for anything else.
 
 > ⚠️ **Order matters / don't brick the repo:** do NOT require a status check that
 > has never reported, and do NOT require Code-Owner review while `CODEOWNERS` still
