@@ -58,6 +58,7 @@ It is calibrated for **high-stakes, worldwide, enterprise** software work. There
 .
 ├── AGENTS.md                       # ⭐ Canonical project conventions. Read this first.
 ├── ADOPTING.md                     # ⭐ Fork→enforced checklist. Do this when adopting the starter.
+├── LICENSE                         # MIT.
 ├── CLAUDE.md                       # Thin pointer to AGENTS.md so Claude Code uses the same procedure.
 ├── README.md                       # This file — orientation and walkthrough.
 ├── workspace.manifest.md           # Multi-repo only: the project's repo roster (see AGENTS.md § 6.5).
@@ -307,3 +308,7 @@ See `AGENTS.md` § 12 for the full scaling-down guidance. The TL;DR (sic — kep
 ## Feedback
 
 If you find a rough edge while using this starter on a real project, write it up as an Architectural Decision Record in your project's `/docs/decisions/` so the next team benefits. Improvements to the starter itself land via pull request against this repository, following the same procedure the starter defines.
+
+## License
+
+MIT. See [`LICENSE`](./LICENSE).

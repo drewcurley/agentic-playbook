@@ -176,7 +176,9 @@ run_pr; expect_pass "synthetic merge head: clean PR passes"
 # 9) The trusted-gate block in both CI files: identical, and it takes the runner
 #    from the target branch (the PR's copy only when the target has none).
 blk_az=$(sed -n '/# BEGIN trusted-gate/,/# END trusted-gate/p' "$ci_root/azure-pipelines.yml" | sed 's/^[[:space:]]*//')
-blk_gh=$(sed -n '/# BEGIN trusted-gate/,/# END trusted-gate/p' "$ci_root/.github/workflows-disabled/checks.yml" | sed 's/^[[:space:]]*//')
+gh_ci=.github/workflows-disabled/checks.yml
+[ -f "$ci_root/.github/workflows/checks.yml" ] && gh_ci=.github/workflows/checks.yml
+blk_gh=$(sed -n '/# BEGIN trusted-gate/,/# END trusted-gate/p' "$ci_root/$gh_ci" | sed 's/^[[:space:]]*//')
 if [ -n "$blk_az" ] && [ "$blk_az" = "$blk_gh" ]; then ok "trusted-gate block present and identical in both CI files"
 else bad "trusted-gate block present and identical in both CI files"; fi
 run_block() {  # run_block: run the CI block in $r for HEAD vs main. Sets $rc, $out.

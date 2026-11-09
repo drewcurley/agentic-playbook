@@ -46,15 +46,51 @@ then ok "makes hooks executable"; else bad "makes hooks executable"; fi
 # 2) Every CI file/script the guidance names exists (it once pointed at
 #    .github/workflows/checks.yml after that file was parked — starter T-012).
 named=$(printf '%s\n' "$out" | grep -oE '[A-Za-z0-9_./-]+\.(yml|yaml|sh)' || true)
+# ci_path_ok <repo> <path>: the path exists, or it's the parked workflow and it has been
+# moved into place as ADOPTING.md § 4 describes.
+ci_path_ok() {
+  [ -f "$1/$2" ] && return 0
+  [ "$2" = .github/workflows-disabled/checks.yml ] && [ -f "$1/.github/workflows/checks.yml" ]
+}
 missing_paths=''
-for p in $named; do [ -f "$playbook_src/$p" ] || missing_paths="$missing_paths $p"; done
+for p in $named; do ci_path_ok "$playbook_src" "$p" || missing_paths="$missing_paths $p"; done
 if [ -n "$named" ] && [ -z "$missing_paths" ]; then ok "names only CI files that exist"
 else bad "names missing CI file(s):${missing_paths:- none named}"; fi
+mkdir -p "$nogit/moved/.github/workflows"; : > "$nogit/moved/.github/workflows/checks.yml"
+if ci_path_ok "$nogit/moved" .github/workflows-disabled/checks.yml; then ok "accepts the parked path once the workflow is moved into place"
+else bad "accepts the parked path once the workflow is moved into place"; fi
+if ci_path_ok "$nogit/moved" azure-pipelines.yml; then bad "still reports other missing CI files"
+else ok "still reports other missing CI files"; fi
 
 # 3) Outside a git repo: refuses with exit 1 and says why.
 err=$( cd "$nogit" && GIT_CEILING_DIRECTORIES="$nogit/.." sh "$sut" 2>&1 >/dev/null ); rc=$?
 if [ "$rc" -eq 1 ] && printf '%s' "$err" | grep -qF "Not in a git repository"; then ok "refuses outside a git repo"
 else bad "refuses outside a git repo (rc=$rc, stderr: $err)"; fi
+
+# 4) Hooks and shell scripts are committed executable, so git runs a fresh clone's hooks
+#    and setup-hooks.sh doesn't leave them showing as modified (starter T-018).
+# check_modes <repo>: each tracked hook or shell script that isn't mode 100755.
+check_modes() {
+  ( cd "$1" && git ls-files -s -- .githooks 'scripts/*.sh' ) \
+    | awk '$1 != "100755" && $4 !~ /\.md$/ { print $4 }'
+}
+tracked=$( cd "$playbook_src" && git ls-files -- .githooks/pre-commit .githooks/commit-msg .githooks/pre-push | wc -l )
+wrong=$(check_modes "$playbook_src")
+if [ "$tracked" -eq 3 ] && [ -z "$wrong" ]; then ok "hooks and shell scripts are committed executable"
+else bad "not committed executable (tracked hooks: $tracked): $wrong"; fi
+
+modes="$nogit/modes"
+mkdir -p "$modes/.githooks" "$modes/scripts"
+printf '#!/bin/sh\n' > "$modes/.githooks/pre-push"
+printf 'docs\n' > "$modes/.githooks/README.md"
+( cd "$modes" && git init -q && git add . && git update-index --chmod=-x .githooks/pre-push )
+wrong=$(check_modes "$modes")
+if [ "$wrong" = ".githooks/pre-push" ]; then ok "fixture: a non-executable hook is caught, README.md is ignored"
+else bad "fixture: wanted .githooks/pre-push, got: $wrong"; fi
+( cd "$modes" && git update-index --chmod=+x .githooks/pre-push )
+wrong=$(check_modes "$modes")
+if [ -z "$wrong" ]; then ok "fixture: an executable hook passes"
+else bad "fixture: wanted no findings, got: $wrong"; fi
 
 echo
 echo "Results: $pass passed, $fail failed"
