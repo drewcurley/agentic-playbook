@@ -78,6 +78,8 @@ jobs:
         displayName: setup-hooks.sh fixture tests
       - script: sh scripts/test/test-aggregate-docs.sh
         displayName: aggregate-docs.sh fixture tests
+      - script: sh scripts/test/test-claude-settings.sh
+        displayName: Claude Code push-rule tests
 
   # Third-party Python packages run here and nowhere else (starter T-016): no credentials,
   # no secrets, no artifacts, and no job waits on this one. scripts/test/test-deck.sh checks that.

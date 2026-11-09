@@ -18,7 +18,13 @@
       "Bash(find:*)"
     ],
     "ask": [
-      "Bash(git push:*)",
+      "Bash(git push *main*)",
+      "Bash(git push *master*)",
+      "Bash(git push *production*)",
+      "Bash(git push *release*)",
+      "Bash(git push *trunk*)",
+      "Bash(git push *--force*)",
+      "Bash(git push * -f*)",
       "Bash(git reset:*)",
       "Bash(rm:*)",
       "Bash([insert package manager here] install:*)",
