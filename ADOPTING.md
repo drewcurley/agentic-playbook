@@ -4,7 +4,8 @@ This is the one checklist that takes a fork from "files copied" to "the conventi
 are actually enforced." **Do these in order.** The framework's whole value is
 *enforcement* — until branch protection + an active CI check are in place, every
 gate (hooks, review cycle, redlines) is advisory and a `--no-verify` push to `main`
-bypasses all of it.
+bypasses all of it. That includes Claude Code's push prompts in `.claude/settings.json`:
+they catch a push that names a protected branch, but not a bare `git push` while on `main`.
 
 > **Single repo vs. multi-repo:** if your project spans several repos, this fork is
 > the shared **playbook** — do steps 1–6 in the playbook, then repeat steps 3–5

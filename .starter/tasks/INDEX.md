@@ -37,6 +37,7 @@
 | [T-014](./T-014.md) | A PR can't loosen the CI gates it is judged by | architect | — | fix/pr-gate-trust | #5 | .starter/tasks/T-014.md#review-artifact |
 | [T-015](./T-015.md) | Keep the starter's own ledger out of adopters' tasks/ and docs/ | review-coordinator | — | chore/starter-ledger | #6 | .starter/docs/reviews/chore-starter-ledger/final.md |
 | [T-016](./T-016.md) | Bring the overview deck up to date and restore its test suite | review-coordinator | — | chore/deck-refresh | #7 | .starter/tasks/T-016.md#review-artifact |
+| [T-017](./T-017.md) | Narrow the push prompt to protected branches | devops | — | chore/t-017-narrow-push-prompt | #9 | .starter/tasks/T-017.md#review-artifact |
 
 ## Cancelled / Superseded
 
