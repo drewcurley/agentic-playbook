@@ -16,6 +16,9 @@ they catch a push that names a protected branch, but not a bare `git push` while
 ## 1. Fork / copy the repo
 Use it as a template or copy the tree into a fresh repo. Keep the directory layout.
 
+`LICENSE` is the starter's MIT license. Keep it, because MIT requires the notice to stay
+with copies of these files. Your own code can carry whatever terms you choose.
+
 **Then decide about `.starter/`: will you pull future updates from this starter?**
 - **No** (template copy, no upstream sync): `git rm -r .starter` in your first PR. It is the
   starter's own task and decision history, and nothing depends on it.
@@ -64,6 +67,15 @@ and regenerate from the repo root:
 `python3 -m venv ../deck-venv && ../deck-venv/bin/python -m pip install --require-hashes --only-binary :all: -r scripts/requirements-deck.txt && ../deck-venv/bin/python scripts/build_deck.py`.
 A PyPI outage turns the required check red: re-run it, and don't use the § 5 break-glass.
 
+**Existing forks only: syncing the push rules (starter T-017).** `scripts/test/test-claude-settings.sh`
+fails if `.claude/settings.json` loses a push rule or `.githooks/pre-push` protects a branch
+with no rule. Keep the rules, or add one for your branch: `"Bash(git push *<branch>*)"`.
+
+**Existing forks only: syncing the hook file modes (starter T-018).** Upstream now commits the
+hooks as executable. If you ran `setup-hooks.sh`, the sync can stop with "commit your changes
+or stash them" on `.githooks/*`. If those files show no changes of your own in `git diff`
+beyond the mode, run `git restore .githooks`, sync again, then `sh scripts/setup-hooks.sh`.
+
 ## 2. Replace every placeholder
 ```sh
 grep -rl --exclude-dir=.starter '\[insert ' .   # find them all
@@ -109,8 +121,9 @@ active CI is Azure DevOps:
 
 > If/when GitHub Actions is approved for your org, instead do:
 > `git mv .github/workflows-disabled/checks.yml .github/workflows/` and re-enable
-> CodeQL in repo settings — then the check is `procedure-checks` with zero setup. Each job
-> reports as its own check, so require `overview deck (build + compare)` too.
+> CodeQL in repo settings. No other setup is needed. Each job reports as its own check, so
+> require all three: `procedure checks`, `shell scripts (lint + test)` and
+> `overview deck (build + compare)`.
 
 ## 5. Protect `main` (the keystone) — do this AFTER step 4
 Branch protection is what makes every other gate real. Configure on GitHub:
