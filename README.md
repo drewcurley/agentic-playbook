@@ -314,3 +314,4 @@ If you find a rough edge while using this starter on a real project, write it up
 MIT. See [`LICENSE`](./LICENSE).
 
 <!-- Azure trial, never merged (T-021) -->
+<!-- no task reference -->
