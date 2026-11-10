@@ -3,7 +3,11 @@
 # a step in azure-pipelines.yml and in the GitHub workflow (active or parked), so a
 # new suite can't be added and silently never run. A commented-out step doesn't count.
 # Every CI file also pins the same shellcheck version and checksum and uses both in its
-# download (starter T-021), so the CI systems lint with the same binary.
+# download (starter T-021), so the CI systems lint with the same binary. Starter T-022
+# adds: one pinned Ubuntu image across both files; a least-privilege GitHub workflow
+# (actions pinned by SHA, no ${{ }} in run: scripts); only one workflow path at a time;
+# the local shellcheck steps in .githooks/README.md match the CI pin; and the docs no
+# longer describe GitHub Actions as parked or unapproved.
 #
 # Run:  sh scripts/test/test-ci-wiring.sh
 #       CI_WIRING_ROOT=<dir> sh scripts/test/test-ci-wiring.sh   (check another tree)
@@ -76,6 +80,100 @@ check_pins() {
   done
 }
 
+# gh_workflow <root>: the GitHub workflow's path (active, else parked), or nothing.
+gh_workflow() {
+  for c in .github/workflows/checks.yml .github/workflows-disabled/checks.yml; do
+    [ -f "$1/$c" ] && { echo "$c"; return 0; }
+  done
+}
+
+# check_paths <root>: the workflow lives at one path, not both.
+check_paths() {
+  if [ -f "$1/.github/workflows/checks.yml" ] && [ -f "$1/.github/workflows-disabled/checks.yml" ]; then
+    echo "FAIL: both .github/workflows/checks.yml and .github/workflows-disabled/checks.yml exist"
+  fi
+}
+
+# check_images <root>: every uncommented vmImage:/runs-on: is the same pinned image.
+check_images() {
+  r=$1 all=''
+  for c in azure-pipelines.yml .github/workflows/checks.yml .github/workflows-disabled/checks.yml; do
+    [ -f "$r/$c" ] || continue
+    imgs=$(sed -nE 's/^[[:space:]]*(vmImage|runs-on):[[:space:]]*([^[:space:]#]+).*/\2/p' "$r/$c")
+    [ -n "$imgs" ] || echo "FAIL: $c names no runner image"
+    for i in $imgs; do
+      case "$i" in *-latest) echo "FAIL: $c uses the floating image $i" ;; esac
+      all="$all
+$i"
+    done
+  done
+  n=$(printf '%s\n' "$all" | grep -v '^$' | sort -u | wc -l | tr -d ' ')
+  [ "$n" -le 1 ] || echo "FAIL: the CI files use $n different images:$(printf '%s\n' "$all" | grep -v '^$' | sort -u | tr '\n' ' ')"
+}
+
+# check_gh_privs <root>: the GitHub workflow runs with least privilege.
+check_gh_privs() {
+  c=$(gh_workflow "$1")
+  [ -n "$c" ] || return 0
+  f="$1/$c"
+  grep -qx 'permissions: {}' "$f" || echo "FAIL: $c has no top-level 'permissions: {}'"
+  grep -n ': write' "$f" | grep -v '^[0-9]*:[[:space:]]*#' | sed "s|^|FAIL: $c grants write access: |"
+  awk -v c="$c" '
+    function report() {
+      if (!perm) print "FAIL: " c " job " job " lacks permissions: contents: read"
+      if (!to) print "FAIL: " c " job " job " has no timeout-minutes"
+    }
+    /^jobs:/ { injobs = 1; next }
+    injobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { if (job != "") report(); job = $1; sub(/:$/, "", job); perm = 0; to = 0; next }
+    job != "" && /^    permissions:/ { getline nxt; if (nxt ~ /^      contents: read[[:space:]]*$/) perm = 1 }
+    job != "" && /^    timeout-minutes:/ { to = 1 }
+    END { if (job != "") report() }' "$f"
+  n_co=$(grep -c 'uses: actions/checkout@' "$f"); n_pc=$(grep -c 'persist-credentials: false' "$f")
+  [ "$n_co" -eq "$n_pc" ] || echo "FAIL: $c has $n_co checkout steps but $n_pc with persist-credentials: false"
+  grep -nE '^[[:space:]]*(- )?uses:' "$f" | grep -vE '@[0-9a-f]{40}([[:space:]]|$)' \
+    | sed "s|^|FAIL: $c uses an action not pinned to a commit SHA: |"
+  # ${{ }} inside a run: script is pasted into the shell text; values go through env:.
+  awk -v c="$c" '
+    /^[[:space:]]*(- )?run:/ { match($0, /^[[:space:]]*(- )?/); ind = RLENGTH; inrun = 1
+      if ($0 ~ /\$\{\{/) print "FAIL: " c ":" NR " has ${{ }} in a run: script"; next }
+    inrun { match($0, /^[[:space:]]*/)
+      if ($0 !~ /^[[:space:]]*$/ && RLENGTH < ind) inrun = 0
+      else if ($0 ~ /^[[:space:]]*-?[[:space:]]*[A-Za-z_-]+:/ && RLENGTH <= ind) inrun = 0
+      else if ($0 ~ /\$\{\{/) print "FAIL: " c ":" NR " has ${{ }} in a run: script" }' "$f"
+}
+
+# check_az_timeouts <root>: every Azure job sets timeoutInMinutes (the default is 60).
+check_az_timeouts() {
+  [ -f "$1/azure-pipelines.yml" ] || return 0
+  awk 'function report() { if (job != "" && !to) print "FAIL: azure-pipelines.yml job " job " has no timeoutInMinutes" }
+    /^  - job:/ { report(); job = $3; to = 0; next }
+    job != "" && /^    timeoutInMinutes:/ { to = 1 }
+    END { report() }' "$1/azure-pipelines.yml"
+}
+
+# check_local_pin <root>: .githooks/README.md's local shellcheck steps use the CI pin.
+check_local_pin() {
+  [ -f "$1/azure-pipelines.yml" ] || return 0
+  v=$(sed -n 's/^[[:space:]]*SHELLCHECK_VERSION:[[:space:]]*//p' "$1/azure-pipelines.yml" | head -n 1)
+  h=$(sed -n 's/^[[:space:]]*SHELLCHECK_SHA256:[[:space:]]*//p' "$1/azure-pipelines.yml" | head -n 1)
+  f="$1/.githooks/README.md"
+  if [ ! -f "$f" ]; then echo "FAIL: .githooks/README.md is missing"; return 0; fi
+  grep -qF "$v" "$f" || echo "FAIL: .githooks/README.md doesn't name the CI's shellcheck $v"
+  grep -qF "$h" "$f" || echo "FAIL: .githooks/README.md doesn't give the CI's shellcheck checksum"
+}
+
+# check_framing <root>: the user-facing docs don't call GitHub Actions parked or unapproved.
+check_framing() {
+  for f in README.md AGENTS.md ADOPTING.md .githooks/README.md .githooks/pre-commit .githooks/commit-msg \
+           .githooks/pre-push scripts/setup-hooks.sh scripts/setup-workspace.sh scripts/build_deck.py \
+           tasks/T-002.md azure-pipelines.yml .github/workflows/checks.yml \
+           .github/workflows-disabled/checks.yml; do
+    [ -f "$1/$f" ] || continue
+    grep -n -i -E 'not yet approved|unapproved|approved for (your|general|the) org|actions (is )?parked|parked (at|gh|github)|\(parked\)|ci-off' "$1/$f" \
+      | sed "s|^|FAIL: $f still calls Actions parked or unapproved: |"
+  done
+}
+
 # report <description> <check output>
 report() {
   if printf '%s\n' "$2" | grep -q '^FAIL'; then
@@ -92,6 +190,12 @@ echo "test-ci-wiring.sh"
 
 report "every suite runs in every CI file ($root)" "$(check_wiring "$root")"
 report "every CI file pins the same shellcheck ($root)" "$(check_pins "$root")"
+report "the GitHub workflow lives at one path ($root)" "$(check_paths "$root")"
+report "both CI files pin the same runner image ($root)" "$(check_images "$root")"
+report "the GitHub workflow runs with least privilege ($root)" "$(check_gh_privs "$root")"
+report "every Azure job has a timeout ($root)" "$(check_az_timeouts "$root")"
+report "the local shellcheck steps match the CI pin ($root)" "$(check_local_pin "$root")"
+report "the docs don't call GitHub Actions parked or unapproved ($root)" "$(check_framing "$root")"
 
 # --- Fixtures -------------------------------------------------------------------
 fx() {
@@ -151,6 +255,93 @@ expect_fail "a mismatch that doesn't stop the job is caught" "azure-pipelines.ym
 fxp; mkdir -p "$tmp/fxp/.github/workflows"; mv "$tmp/fxp/.github/workflows-disabled/checks.yml" "$tmp/fxp/.github/workflows/"
 pin_file "$tmp/fxp/.github/workflows/checks.yml" v2.0 "$sha"
 expect_fail "an un-parked workflow is checked too" ".github/workflows/checks.yml pins shellcheck 'v2.0" "$(check_pins "$tmp/fxp")"
+
+# --- Image, privilege, path, local-pin and framing fixtures (starter T-022) ---------
+gw() {  # gw <path>: a least-privilege workflow with two jobs
+  mkdir -p "$(dirname "$1")"
+  cat > "$1" <<'EOF'
+on: pull_request
+permissions: {}
+jobs:
+  a:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      X: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v9
+        with:
+          persist-credentials: false
+      - run: |
+          echo "$X"
+  b:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v9
+        with:
+          persist-credentials: false
+      - name: s
+        run: sh x.sh
+EOF
+}
+fxg() {
+  rm -rf "$tmp/fxg"; mkdir -p "$tmp/fxg/.githooks"
+  gw "$tmp/fxg/.github/workflows/checks.yml"
+  printf 'pool:\n  vmImage: ubuntu-24.04  # pinned\n  # vmImage: ubuntu-latest\n  SHELLCHECK_VERSION: v1.0\n  SHELLCHECK_SHA256: %s\n' "$sha" > "$tmp/fxg/azure-pipelines.yml"
+  printf 'Run shellcheck v1.0 (sha256 %s) locally.\n' "$sha" > "$tmp/fxg/.githooks/README.md"
+  printf 'GitHub Actions is the default CI. To use only Azure, park the workflow.\n' > "$tmp/fxg/README.md"
+}
+edit_fx() {  # edit_fx <file> <sed expression>
+  sed "$2" "$1" > "$tmp/x" && mv "$tmp/x" "$1"
+}
+first() {  # first <file> <old line text> [<new line text>]: replace (or drop) the first exact line
+  awk -v o="$2" -v n="${3-}" -v drop=$# 'done != 1 && $0 == o { done = 1; if (drop == 2) next; $0 = n } { print }' \
+    "$1" > "$tmp/x" && mv "$tmp/x" "$1"
+}
+g="$tmp/fxg/.github/workflows/checks.yml"
+printf 'jobs:\n  - job: a\n    timeoutInMinutes: 5\n  - job: b\n    displayName: b\n' > "$tmp/fxt.yml"
+mkdir -p "$tmp/fxt"; mv "$tmp/fxt.yml" "$tmp/fxt/azure-pipelines.yml"
+expect_fail "an Azure job without a timeout is caught" "job b has no timeoutInMinutes" "$(check_az_timeouts "$tmp/fxt")"
+fxg; report "fixture: a pinned, least-privilege setup passes" "$(check_paths "$tmp/fxg"; check_images "$tmp/fxg"; check_gh_privs "$tmp/fxg"; check_local_pin "$tmp/fxg"; check_framing "$tmp/fxg")"
+fxg; gw "$tmp/fxg/.github/workflows-disabled/checks.yml"
+expect_fail "both workflow paths at once is caught" "both .github/workflows/checks.yml and" "$(check_paths "$tmp/fxg")"
+fxg; first "$g" '    runs-on: ubuntu-24.04' '    runs-on: ubuntu-latest'
+expect_fail "a job on ubuntu-latest is caught" "uses the floating image ubuntu-latest" "$(check_images "$tmp/fxg")"
+fxg; edit_fx "$tmp/fxg/azure-pipelines.yml" 's/vmImage: ubuntu-24.04/vmImage: ubuntu-22.04/'
+expect_fail "two different images are caught" "use 2 different images" "$(check_images "$tmp/fxg")"
+fxg; edit_fx "$g" '/^permissions: {}$/d'
+expect_fail "a missing top-level permissions: {} is caught" "has no top-level 'permissions: {}'" "$(check_gh_privs "$tmp/fxg")"
+fxg; first "$g" '      contents: read' '      contents: write'
+out=$(check_gh_privs "$tmp/fxg")
+expect_fail "a job with write access is caught" "grants write access" "$out"
+expect_fail "...and named as lacking contents: read" "job a lacks permissions: contents: read" "$out"
+fxg; first "$g" '    timeout-minutes: 5'
+expect_fail "a job without timeout-minutes is caught" "job a has no timeout-minutes" "$(check_gh_privs "$tmp/fxg")"
+fxg; first "$g" '          persist-credentials: false'
+expect_fail "a checkout that keeps credentials is caught" "2 checkout steps but 1 with persist-credentials: false" "$(check_gh_privs "$tmp/fxg")"
+fxg; first "$g" '      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v9' '      - uses: actions/checkout@v4'
+expect_fail "an action pinned by tag is caught" "not pinned to a commit SHA" "$(check_gh_privs "$tmp/fxg")"
+fxg
+# shellcheck disable=SC2016  # the ${{ }} is the fixture's text
+edit_fx "$g" 's/echo "\$X"/echo "${{ github.sha }}"/'
+expect_fail "\${{ }} in a run: script is caught" "has \${{ }} in a run: script" "$(check_gh_privs "$tmp/fxg")"
+fxg
+# shellcheck disable=SC2016  # the ${{ }} is the fixture's text
+edit_fx "$g" 's/run: sh x.sh/run: sh x.sh ${{ github.sha }}/'
+expect_fail "\${{ }} in a one-line run: is caught" "has \${{ }} in a run: script" "$(check_gh_privs "$tmp/fxg")"
+fxg; edit_fx "$tmp/fxg/.githooks/README.md" 's/v1.0/v0.9/'
+expect_fail "local steps naming another shellcheck are caught" "doesn't name the CI's shellcheck v1.0" "$(check_local_pin "$tmp/fxg")"
+fxg; edit_fx "$tmp/fxg/.githooks/README.md" "s/$sha/b${sha#a}/"
+expect_fail "local steps with another checksum are caught" "doesn't give the CI's shellcheck checksum" "$(check_local_pin "$tmp/fxg")"
+fxg; printf 'GitHub Actions is not yet approved for general org use.\n' >> "$tmp/fxg/README.md"
+expect_fail "\"not yet approved\" wording is caught" "README.md still calls Actions parked or unapproved" "$(check_framing "$tmp/fxg")"
+fxg; printf 'Azure DevOps now; GitHub Actions parked.\n' >> "$tmp/fxg/README.md"
+expect_fail "\"Actions parked\" wording is caught" "README.md still calls Actions parked or unapproved" "$(check_framing "$tmp/fxg")"
 
 echo
 echo "Results: $pass passed, $fail failed"

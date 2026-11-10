@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 # Fixture test for scripts/ci-pr-checks.sh and the "trusted-gate" block in both CI
-# files (starter T-014: a PR can't loosen the gates it is judged by).
+# files (starter T-014: a PR can't loosen the gates it is judged by), and the Azure
+# step's choice between the PR gate and the branch scan (starter T-022).
 #
 # Stack-neutral: POSIX sh + git only. Builds throwaway repos whose `main` carries
 # the real gate files and whose `pr` branch tries to weaken them, then runs the
@@ -32,8 +33,9 @@ HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/xdg"
 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1
 export HOME XDG_CONFIG_HOME GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM GIT_ATTR_NOSYSTEM
 unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_EXTERNAL_DIFF
-# Plain-text warnings: the scripts switch to ##[warning] / ::warning:: under CI.
-unset TF_BUILD GITHUB_ACTIONS
+# Plain-text warnings: the scripts switch to ##[warning] / ::warning:: under CI. Azure's
+# build variables are cleared too, so a run inside Azure tests what a local run does.
+unset TF_BUILD GITHUB_ACTIONS BUILD_REASON SYSTEM_PULLREQUEST_TARGETBRANCH
 
 pass=0
 fail=0
@@ -205,6 +207,58 @@ run_block
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "WARNING: the target branch has no scripts/ci-pr-checks.sh"
 then ok "CI block bootstraps with the PR's runner, with a warning"
 else bad "CI block bootstraps with the PR's runner, with a warning (rc=$rc, out: $out)"; fi
+
+# 10) The Azure procedure step's "pr-mode" block (starter T-022) picks the PR gate or
+#     the branch scan from Azure's env vars, and fails closed when it can't tell.
+az="$ci_root/azure-pipelines.yml"
+blk_mode=$(sed -n '/# BEGIN pr-mode/,/# END pr-mode/p' "$az" | sed 's/^[[:space:]]*//')
+if [ "$(grep -c '# BEGIN pr-mode' "$az")" -eq 1 ] && printf '%s' "$blk_mode" | grep -qF '# BEGIN trusted-gate'
+then ok "pr-mode block marked once in azure-pipelines.yml, around the trusted gate"
+else bad "pr-mode block marked once in azure-pipelines.yml, around the trusted gate"; fi
+if grep -Eq '\$\((System|Build)\.' "$az"; then bad "azure-pipelines.yml pastes no Build./System. macros into scripts ($(grep -En '\$\((System|Build)\.' "$az" | tr '\n' ' '))"
+else ok "azure-pipelines.yml pastes no Build./System. macros into scripts"; fi
+# shellcheck disable=SC2016  # literal script text for the block's preamble
+{ printf 'set -e\nhead=$(git rev-parse HEAD)\n'; printf '%s\n' "$blk_mode"; } > "$tmp/mode.sh"
+# run_mode <TF_BUILD> <BUILD_REASON> <SYSTEM_PULLREQUEST_TARGETBRANCH>: every Azure
+# variable the block reads is set explicitly. Sets $rc, $out.
+run_mode() {
+  out=$( cd "$r" && TF_BUILD=$1 BUILD_REASON=$2 SYSTEM_PULLREQUEST_TARGETBRANCH=$3 "$SH" "$tmp/mode.sh" 2>&1 ); rc=$?
+}
+mode_fixture() {
+  make_fixture
+  on_main "cp '$playbook_src/scripts/ci-base.sh' scripts/" "add ci-base"
+  ( cd "$r" && git remote add origin "$r" )   # the block fetches the target from origin
+  ( cd "$r" && git rebase -q main )
+  echo "clean" >> "$r/file.txt"; pr_commit "clean"
+}
+ran_gate() { printf '%s' "$out" | grep -qF "Gate runner: the target's scripts/ci-pr-checks.sh"; }
+mode_fixture
+for t in main refs/heads/main; do
+  run_mode True PullRequest "$t"
+  if [ "$rc" -eq 0 ] && ran_gate && printf '%s' "$out" | grep -qF "PR build: target main"; then ok "PR build targeting '$t' runs the target's gate"
+  else bad "PR build targeting '$t' runs the target's gate (rc=$rc, out: $out)"; fi
+done
+run_mode True Manual main
+if [ "$rc" -eq 0 ] && ran_gate; then ok "a non-PR reason with a PR target still takes the PR gate"
+else bad "a non-PR reason with a PR target still takes the PR gate (rc=$rc, out: $out)"; fi
+run_mode True IndividualCI ''
+if [ "$rc" -eq 0 ] && ! ran_gate && printf '%s' "$out" | grep -qF "Diff range:"; then ok "a branch build takes the branch scan"
+else bad "a branch build takes the branch scan (rc=$rc, out: $out)"; fi
+run_mode True PullRequest ''
+if [ "$rc" -ne 0 ] && ! ran_gate && printf '%s' "$out" | grep -qF "PR build with no target branch" \
+   && ! printf '%s' "$out" | grep -qF "all procedure gates passed"
+then ok "a PR build with no target fails closed without running a gate"
+else bad "a PR build with no target fails closed without running a gate (rc=$rc, out: $out)"; fi
+run_mode True '' ''
+if [ "$rc" -ne 0 ] && ! ran_gate && printf '%s' "$out" | grep -qF "BUILD_REASON is empty"; then ok "an unknown build type on Azure fails closed"
+else bad "an unknown build type on Azure fails closed (rc=$rc, out: $out)"; fi
+run_mode True PullRequest '-x'
+if [ "$rc" -ne 0 ] && ! ran_gate && printf '%s' "$out" | grep -qF "looks like an option"; then ok "a PR target that looks like an option fails closed"
+else bad "a PR target that looks like an option fails closed (rc=$rc, out: $out)"; fi
+printf '%s\n' "$secret" >> "$r/file.txt"; pr_commit "secret"
+run_mode True PullRequest main
+if [ "$rc" -ne 0 ] && ran_gate && printf '%s' "$out" | grep -qF "Possible secret detected"; then ok "the PR path really runs the gate (a secret fails it)"
+else bad "the PR path really runs the gate (a secret fails it) (rc=$rc, out: $out)"; fi
 
 echo
 echo "Results: $pass passed, $fail failed"

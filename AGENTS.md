@@ -283,7 +283,7 @@ The forked starter stops being "one project's repo" and becomes a **shared playb
 1. Fork this starter as the team's **playbook** repo. Replace placeholders (§ 10), fill in `workspace.manifest.md` with the project's repos.
 2. Check out the code repos as **siblings** of `playbook/` under the workspace root.
 3. Run `sh playbook/scripts/setup-workspace.sh` — it installs the playbook's hooks into **every** repo (`core.hooksPath`) and reports any repo from the manifest that isn't checked out. Re-run whenever a repo is added.
-4. Ensure each code repo also runs the **CI mirror** so `--no-verify` can't bypass the gates server-side. Hooks are per-repo; CI must be too. The active CI is **Azure DevOps** (`azure-pipelines.yml`) while GitHub Actions is unapproved — wire it into your Azure DevOps project per repo. **Co-install the matching `.github/pull_request_template.md`** — the pipeline's PR-body check asserts the template's section headings, so a repo running the pipeline without the template will fail every PR. A repo that skips CI entirely has *no* server-side backstop, so `--no-verify` fully bypasses its gates — don't.
+4. Ensure each code repo also runs the **CI mirror** so `--no-verify` can't bypass the gates server-side. Hooks are per-repo; CI must be too. That's GitHub Actions (`.github/workflows/checks.yml`, on by default) or Azure DevOps (`azure-pipelines.yml`, one pipeline per repo); see `ADOPTING.md` § 4. **Co-install the matching `.github/pull_request_template.md`** — the pipeline's PR-body check asserts the template's section headings, so a repo running the pipeline without the template will fail every PR. A repo that skips CI entirely has *no* server-side backstop, so `--no-verify` fully bypasses its gates — don't.
 5. Each code repo runs its **own docs bootstrap** (§ 6) before its first feature — its `contracts.md` becomes a node the integration map connects.
 6. The Architect + Backend + Data Engineer populate `integration-map.md` with the verified seams (held to § 6.0 — exhaustive, grounded, no invented edges).
 
@@ -376,16 +376,16 @@ All work happens on feature branches. **No direct pushes to `main`.**
 >
 > `main` is the source of truth and is never wrong. A *feature branch* may briefly show `completed` while its PR is open — read that as "claimed done, pending merge." This is why the terminal step records `branch` + `pr` (both known before merge) and **not** the merge SHA (knowable only after, and the thing that used to force a noisy second PR).
 
-### CI provider — Azure DevOps (GitHub Actions parked)
+### CI provider — GitHub Actions by default, or Azure DevOps
 
-GitHub Actions is **not yet approved for general org use**, so the active CI is **Azure DevOps** (code stays in GitHub; the Azure Pipelines GitHub App connects Azure to the repo). The pipeline lives at [`/azure-pipelines.yml`](./azure-pipelines.yml).
+Two CI systems are supported and run the same checks; pick by where your pipelines live (`ADOPTING.md` § 4, which also covers running both).
 
+- **GitHub Actions** — [`.github/workflows/checks.yml`](./.github/workflows/checks.yml). The default: it runs on every PR and push to `main` as soon as the repo is on GitHub, with nothing to set up. It runs with least privilege (no token permissions by default, read-only contents, no saved git credentials, actions pinned by commit SHA) and uses `pull_request`, never `pull_request_target`.
+- **Azure DevOps** — [`/azure-pipelines.yml`](./azure-pipelines.yml), for teams whose pipelines live there (code stays in GitHub; the Azure Pipelines GitHub App connects Azure to the repo). Create one pipeline per repo; its `pr:` trigger builds every PR. A team that runs only Azure parks the Actions workflow at `.github/workflows-disabled/checks.yml` so PRs aren't checked twice.
 - **Both CI systems call the same [`scripts/ci-checks.sh`](./scripts/ci-checks.sh)** — the single source of truth for the procedure gates (placeholders, secrets, task-ID, `/docs/*` consensus). This is what keeps them from drifting. On a PR build they run the **target branch's** copy (and its `.placeholder-allow`) through [`scripts/ci-pr-checks.sh`](./scripts/ci-pr-checks.sh), so a PR can't loosen the gate it is judged by; a gate change applies from the next PR on (starter T-014, `ADOPTING.md` § 5).
-- The **GitHub Actions equivalent is parked** at `.github/workflows-disabled/checks.yml` (GitHub only runs workflows under `.github/workflows/`, so it's inert). When Actions is approved, `git mv` it back into `.github/workflows/` — one move, no rewrite.
-- CodeQL default-setup (also Actions-based) is disabled for the same reason; re-enable it in repo settings when Actions is approved.
-- **Adopting teams:** wire `azure-pipelines.yml` into your Azure DevOps project for **each** repo (it's per-repo, like the hooks). If your team is approved for GitHub Actions, un-park the workflow instead.
+- **Both pin their tools** — the Ubuntu image and shellcheck (version and checksum) — to the same values; `scripts/test/test-ci-wiring.sh` checks they match.
 
-> ⚠️ **Default posture is CI-OFF until you wire it up.** Unlike a GitHub Actions workflow (which runs automatically once committed), an Azure DevOps pipeline does nothing until you (1) create it in your ADO project against the repo **and** (2) require its check in GitHub branch protection on `main` (`ADOPTING.md` § 4–5). The YAML `pr:` trigger builds every PR to a GitHub repo on its own; no Azure branch policy is needed (Build Validation is for Azure Repos only). Until both are done, a freshly-forked repo has **no server-side gate**, so `--no-verify` fully bypasses the hooks. The local hooks still run; the server-side backstop does not exist until configured. Treat wiring CI as part of repo setup, not an afterthought.
+> ⚠️ **Nothing is enforced until the checks are required.** CI that runs but isn't required on `main` blocks nothing, and `--no-verify` bypasses the hooks. Require the checks of each system you run, each with its expected source (`ADOPTING.md` § 5). An Azure-only repo has no server-side gate until its pipeline exists; a repo whose org disables Actions gets no Actions checks and no warning. Treat wiring CI as part of repo setup, not an afterthought.
 
 ### Hooks (one-time setup, every fresh clone)
 
@@ -415,7 +415,7 @@ git fetch upstream
 git merge upstream/main          # or: git cherry-pick the policy commits you want
 ```
 
-The policy surface worth syncing: `AGENTS.md`, `.claude/agents/*.md`, `.githooks/*`, `scripts/*` (incl. `ci-checks.sh`, `aggregate-docs.sh`), `.github/pull_request_template.md`, `azure-pipelines.yml`, `.github/workflows-disabled/checks.yml`, `.placeholder-allow`, `docs/README.md`, and the task `_TEMPLATE.md`. Your *content* — filled-in placeholders, real `contracts.md`, real tasks — is yours and won't conflict if you kept it out of the template files.
+The policy surface worth syncing: `AGENTS.md`, `.claude/agents/*.md`, `.githooks/*`, `scripts/*` (incl. `ci-checks.sh`, `aggregate-docs.sh`), `.github/pull_request_template.md`, `azure-pipelines.yml`, `.github/workflows/checks.yml` (or its parked path), `.placeholder-allow`, `docs/README.md`, and the task `_TEMPLATE.md`. Your *content* — filled-in placeholders, real `contracts.md`, real tasks — is yours and won't conflict if you kept it out of the template files.
 
 Two cautions, because this merge touches the files that gate everything:
 - **Treat the upstream merge as a config/infra change** — run it through the review cycle (Architect + Ops per § 5). A careless conflict resolution in `.githooks/*`, `scripts/ci-checks.sh`, or `azure-pipelines.yml` can silently weaken or disable a gate, and nothing else will catch it. Diff the resolved hooks/CI against upstream to confirm no gate was dropped. "Resolve in favor of local" is the wrong default *for the enforcement files specifically*.
@@ -492,7 +492,7 @@ This starter is intentionally stack-neutral. Replace the bracketed placeholders 
 | `[insert backend framework here]` | Node + Express / FastAPI / Go + chi / Rails / .NET / etc. |
 | `[insert database here]` | Postgres / MySQL / SQLite / DynamoDB / Mongo / etc. |
 | `[insert authentication provider here]` | Clerk / Auth0 / Cognito / NextAuth / custom / etc. |
-| `[insert Continuous Integration provider here]` | **Azure DevOps Pipelines** (current default — GitHub Actions parked, see § 7 "CI provider") / GitLab Pipelines / CircleCI / etc. |
+| `[insert Continuous Integration provider here]` | **GitHub Actions** (default) or **Azure DevOps Pipelines** — both shipped, see § 7 "CI provider" / GitLab Pipelines / CircleCI / etc. |
 | `[insert hosting platform here]` | Vercel / Fly.io / Render / AWS ECS / k8s / etc. |
 | `[insert monitoring here]` | Datadog / Sentry / Grafana / New Relic / etc. |
 | `[insert test runner here]` | Vitest / Jest / Pytest / Go test / RSpec / etc. |

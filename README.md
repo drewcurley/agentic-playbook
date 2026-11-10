@@ -63,13 +63,13 @@ It is calibrated for **high-stakes, worldwide, enterprise** software work. There
 ├── README.md                       # This file — orientation and walkthrough.
 ├── workspace.manifest.md           # Multi-repo only: the project's repo roster (see AGENTS.md § 6.5).
 ├── .gitignore                      # Ignores .claude/settings.local.json, .env*, etc.
-├── azure-pipelines.yml             # ACTIVE CI — Azure DevOps mirror of .githooks/ (runs scripts/ci-checks.sh).
+├── azure-pipelines.yml             # CI on Azure DevOps — the same checks, for teams whose pipelines live there.
 ├── .github/
 │   ├── CODEOWNERS                  # Human review routing — replace placeholders with real handles.
 │   ├── pull_request_template.md    # Pull-request template with agent sign-offs + redline check.
-│   └── workflows-disabled/
-│       └── checks.yml              # Parked GH Actions mirror (GH Actions not yet approved).
-│                                   # git mv back to .github/workflows/ to re-enable.
+│   └── workflows/
+│       └── checks.yml              # CI on GitHub Actions (default) — server-side mirror of .githooks/.
+│                                   # Azure-only teams park it in .github/workflows-disabled/.
 ├── .githooks/                      # Stack-neutral procedure-enforcing git hooks.
 │   ├── README.md                   # What each hook blocks + bypass policy.
 │   ├── pre-commit                  # Branch, placeholders, secrets, /docs warning.
@@ -78,7 +78,7 @@ It is calibrated for **high-stakes, worldwide, enterprise** software work. There
 ├── scripts/
 │   ├── setup-hooks.sh              # Single repo: git config core.hooksPath .githooks
 │   ├── setup-workspace.sh          # Multi-repo: install hooks into every repo in the manifest.
-│   ├── ci-checks.sh                # Shared CI gate logic — called by Azure DevOps + (parked) GH Actions.
+│   ├── ci-checks.sh                # Shared CI gate logic — called by GitHub Actions and Azure DevOps.
 │   └── test/test-setup-workspace.sh# Fixture tests for setup-workspace.sh.
 ├── .pre-commit-config.yaml         # Optional pre-commit framework template (stack lint/format).
 ├── .claude/
@@ -150,7 +150,7 @@ Most real projects are **one product across several repos** that can't easily be
 1. Fork this starter as your team's **playbook** repo; fill in `workspace.manifest.md` with your repos.
 2. Check the code repos out as **siblings** of `playbook/`.
 3. Run `sh playbook/scripts/setup-workspace.sh` — installs hooks into every repo, reports any that are missing. Re-run after cloning on a new machine or adding a repo.
-4. Wire the CI mirror (Azure DevOps `azure-pipelines.yml`) into each repo, populate `integration-map.md`, and run each repo's own docs bootstrap. Tracked by the seeded task `tasks/T-002.md`.
+4. Turn on the CI mirror in each repo (GitHub Actions by default, or Azure DevOps `azure-pipelines.yml`; `ADOPTING.md` § 4), populate `integration-map.md`, and run each repo's own docs bootstrap. Tracked by the seeded task `tasks/T-002.md`.
 
 **Honest limit:** git enforcement is per-repo, so hooks install per-repo (the script does it) and a cross-repo change is two coordinated pull requests, not one atomic commit. The integration map + regression-safety check keep them in step.
 
@@ -203,7 +203,7 @@ You ask the agent to implement a feature. It does this:
 8. **Commits** with a message that references the task identifier: `feat(area): one-line summary T-NNN`. The commit-msg hook blocks any commit missing a Task identifier.
 9. **Pushes immediately** after sign-off (no asking).
 10. **Opens a pull request** using `.github/pull_request_template.md` — which already includes slots for all 9 agent sign-offs, 7 strategic lenses (for major decisions), the review artifact link, the regression-safety / contracts-touched section, risk classification, and an explicit redline-cross check.
-11. **At least one human reviewer** approves per `.github/CODEOWNERS`. Continuous Integration runs the procedure mirror (`scripts/ci-checks.sh`, via Azure DevOps `azure-pipelines.yml` while GitHub Actions is unapproved) — placeholders, secrets, task identifier, `/docs/*` consensus assertion, pull-request template completeness — all server-side, all bypass-proof.
+11. **At least one human reviewer** approves per `.github/CODEOWNERS`. Continuous Integration runs the procedure mirror (`scripts/ci-checks.sh`, via GitHub Actions or Azure DevOps) — placeholders, secrets, task identifier, `/docs/*` consensus assertion, pull-request template completeness — all server-side, and bypass-proof once `main` requires the checks (`ADOPTING.md` § 5).
 
 You'll notice the procedure feels heavy on the first pull request and natural by the third. The friction is calibrated to catch the failures that are expensive in this kind of work.
 

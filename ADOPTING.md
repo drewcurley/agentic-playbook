@@ -27,13 +27,14 @@ with copies of these files. Your own code can carry whatever terms you choose.
   ever add the starter as an upstream remote.
 
 **Then decide about the overview deck.** It describes this starter, not your project, and
-nothing depends on it. To drop it, remove all three files in one PR:
+nothing depends on it. CI builds and compares it only on PRs that touch it or its CI
+wiring (`scripts/ci-deck-needed.sh` lists those files); other PRs get a quick SKIP. To drop it, remove all three files in one PR:
 `git rm Agentic-Starter-Overview.pptx scripts/build_deck.py scripts/requirements-deck.txt`.
 Keep `scripts/test/test-deck.sh` and its CI job: CI then installs nothing and the suite
 prints a `SKIP:` line. Removing only some of the three fails the suite. If you delete the
-suite as well, remove the `deck` job from both CI files, and remove its check from the
-required checks if you required it (§ 5 advises requiring only Azure's overall check, which
-avoids this).
+suite as well, remove the `deck` job from both CI files. On Actions, first remove
+`overview deck (build + compare)` from the required checks (§ 5), or every PR blocks; on
+Azure, § 5 requires only the overall check, which avoids this.
 
 Your `tasks/` and `docs/` start clean: the docs-bootstrap seeds (`T-001*`, `T-002`) plus
 templates. Code and docs that cite **"starter T-0NN"** mean the upstream repo's
@@ -72,6 +73,14 @@ A PyPI outage turns the required check red: re-run it, and don't use the § 5 br
 fails if `.claude/settings.json` loses a push rule or `.githooks/pre-push` protects a branch
 with no rule. Keep the rules, or add one for your branch: `"Bash(git push *<branch>*)"`.
 
+**Existing forks only: syncing GitHub Actions on by default (starter T-022).** The GitHub
+workflow moves from `.github/workflows-disabled/` to `.github/workflows/`, so it starts
+running on your PRs as soon as you sync, if Actions is enabled for your repo. If you run
+only Azure DevOps, keep it parked: `git mv .github/workflows/checks.yml
+.github/workflows-disabled/checks.yml` in the sync PR (or disable the workflow in the
+Actions tab). If your org allows only some actions, allow `actions/checkout`, or every PR
+gets a red check from it. On private repos, see § 4a for the minutes it uses.
+
 **Existing forks only: syncing the hook file modes (starter T-018).** Upstream now commits the
 hooks as executable. If you ran `setup-hooks.sh`, the sync can stop with "commit your changes
 or stash them" on `.githooks/*`. If those files show no changes of your own in `git diff`
@@ -93,15 +102,53 @@ Hooks are **per-repo and per-clone** — every teammate runs this once per fresh
 Hooks are the *local* gate; they do **not** survive `--no-verify`. The server-side
 backstop is steps 4–5.
 
-## 4. Wire the active CI (Azure DevOps)
-GitHub Actions is parked (`.github/workflows-disabled/`, see `AGENTS.md` § 7). The
-active CI is Azure DevOps:
+## 4. Turn on server-side CI: pick one
+**Org blocks GitHub Actions, or your pipelines already live in Azure DevOps? Use 4b. Otherwise use 4a.**
+Both run the same checks (`scripts/ci-checks.sh`, shellcheck and the fixture suites, the
+deck, the PR-body template). Running both is allowed but checks every PR twice; do it only
+on purpose.
+
+Either way, **land `scripts/` on `main` before requiring any check.** A PR build runs the
+gate from the *target* branch (`scripts/ci-pr-checks.sh`, starter T-014), so it fails
+closed while `main` has no `scripts/ci-checks.sh`. Merge the starter's files first.
+
+> ⚠️ **Running isn't enforcing.** A check that runs but isn't required blocks nothing,
+> and `--no-verify` bypasses the hooks. The server-side gate exists only once § 5
+> requires the checks.
+
+### 4a. GitHub Actions (default: runs once the file is on `main`)
+`.github/workflows/checks.yml` runs on every PR and every push to `main`.
+1. **Make sure Actions can run.** A repo created from the template, or copied, runs it
+   right away. A true GitHub fork has Actions off until you enable it in its Actions tab.
+   If Actions is disabled for your org or repo, the workflow never runs and nothing
+   fails: you get no checks and no warning. Use 4b, and don't require the Actions checks.
+2. **Settings → Actions → General:** allow `actions/checkout` (the only action the
+   workflow uses; it's pinned to a commit SHA), set the default workflow permissions to
+   read, require approval before workflows run for outside contributors, and require
+   actions to be pinned to a full-length commit SHA. Fork PRs already get a read-only
+   token and no secrets; approval stops strangers spending your minutes. Turn on
+   Dependabot alerts (Settings → Code security) so you hear about a new `actions/checkout`
+   release, then bump the pinned SHA by hand: Dependabot's own PRs carry no Task ID and
+   would fail the procedure gate.
+3. **Minutes:** free on public repos. On private repos each push to a PR uses about
+   3 billed minutes of your plan's monthly Actions allowance (three jobs, each rounded up
+   to a whole minute), and about 2 more when the PR touches the deck or its CI wiring,
+   since only then does the deck job build (starter T-019 and starter T-022). See
+   [GitHub's Actions billing](https://docs.github.com/billing/managing-billing-for-github-actions/about-billing-for-github-actions)
+   for your plan's allowance. Running 4b as well uses Azure's quota on top.
+
+**Done when:** a throwaway PR shows `procedure checks`, `shell scripts (lint + test)` and
+`overview deck (build + compare)`, all green. If no run appears, recheck step 1, then
+close and reopen the PR.
+
+### 4b. Azure DevOps (your pipelines live there, or your org blocks Actions)
 1. **Create one pipeline per repo.** In your Azure DevOps project: **Pipelines → New
    pipeline → GitHub → your repo → Existing Azure Pipelines YAML file →
    `/azure-pipelines.yml`**. Connect through the **Azure Pipelines GitHub App** when
    asked: it posts the checks § 5 requires (an OAuth or PAT connection reports a commit
    status under a different name). Keep to one pipeline: a second one built from the same
-   file posts every check twice and doubles the wait, so delete any extra before § 5.
+   file posts every check twice and doubles the wait, so delete or disable any extra
+   before § 5.
    - A new Azure DevOps organization has **no hosted agents** until it gets the free grant:
      request it at https://aka.ms/azpipelines-parallelism-request (approval can take a few
      days), or link a billing subscription under Organization settings → Billing. The
@@ -110,18 +157,16 @@ active CI is Azure DevOps:
      Agent.Version …"* most likely means the hosted-agent grant isn't active yet. In starter T-021 it
      appeared right after the grant and was gone on a later run; if it persists, check
      Organization settings → Parallel jobs.
-2. **Check that PRs build.** The YAML `pr:` trigger runs the pipeline on every PR to a
+2. **Park the GitHub Actions workflow** unless you want both systems:
+   `git mv .github/workflows/checks.yml .github/workflows-disabled/checks.yml`. Parked,
+   GitHub doesn't run it; the tests accept either path.
+3. **Check that PRs build.** The YAML `pr:` trigger runs the pipeline on every PR to a
    GitHub repo; no Azure branch policy is needed (Build Validation is for Azure Repos
-   only). Open a throwaway PR and confirm the Azure checks appear on it in GitHub. If
-   none do, open the pipeline's **Triggers** and make sure **"Override the YAML pull
-   request trigger"** is unchecked.
-3. (Optional) to enable the PR-body template check, add a **secret** pipeline variable
+   only). If no Azure checks appear on a PR, open the pipeline's **Triggers** and make
+   sure **"Override the YAML pull request trigger"** is unchecked.
+4. (Optional) to enable the PR-body template check, add a **secret** pipeline variable
    `GITHUB_TOKEN` holding a fine-grained token for this repo only, with read-only **Pull
    requests** access and an expiry. Without it the step is skipped with a warning.
-4. **Land `scripts/` on `main` before requiring the check.** A PR build runs the
-   gate from the *target* branch (`scripts/ci-pr-checks.sh`, starter T-014), so it fails
-   closed if `main` has no `scripts/ci-checks.sh` yet. Merge the starter's files
-   first, then require the check (§ 5).
 5. **Fork PRs** (pipeline → Triggers → Pull request validation): leave **"Make
    secrets available to builds of forks" off** and require a team member's comment
    before a fork build runs. The checkout uses `persistCredentials: true`, so a
@@ -135,26 +180,28 @@ active CI is Azure DevOps:
    self-hosted pool the job loses the per-job VM isolation it relies on, so keep it on
    hosted agents or drop the deck (§ 1).
 
-> If/when GitHub Actions is approved for your org, instead do:
-> `git mv .github/workflows-disabled/checks.yml .github/workflows/` and re-enable
-> CodeQL in repo settings. Confirm a run appears on your first PR; if none does, push a
-> commit to that PR. Each job reports as its own check, so require all three:
-> `procedure checks`, `shell scripts (lint + test)` and
-> `overview deck (build + compare)`. A run that never starts blocks nothing until they're
-> required.
+**Done when:** a throwaway PR shows the Azure checks (`<pipeline name>` plus one per job),
+all green.
 
 ## 5. Protect `main` (the keystone) — do this AFTER step 4
 Branch protection is what makes every other gate real. Configure on GitHub:
 **Settings → Branches → Add branch ruleset (or protection rule) for `main`:**
 - ✅ Require a pull request before merging
 - ✅ Require approvals: **see "Solo vs. team" below** — and **Require review from Code Owners** *(team only)*
-- ✅ Require status checks to pass — require the Azure pipeline's **overall** check (named
-  after the pipeline) and set its expected source to **Azure Pipelines**, so a check of the
-  same name from anywhere else, such as a GitHub Actions job a PR adds, can't satisfy it.
-  Don't require the per-job checks (`<pipeline> (<job>)`): renaming or removing a job leaves
-  a required check that never reports. Settle the pipeline's name first, since renaming it
-  renames the check. The check appears in the list only *after* it has run at least once —
-  open a throwaway PR to make it report, then require it.
+- ✅ Require status checks to pass — the checks of each CI system you run (§ 4), each
+  with its **expected source** set, so a check of the same name from anywhere else (say,
+  a workflow a PR adds) can't satisfy it:
+
+  | You run | Require | Expected source |
+  |---|---|---|
+  | GitHub Actions (4a) | `procedure checks`, `shell scripts (lint + test)`, `overview deck (build + compare)` | GitHub Actions |
+  | Azure DevOps (4b) | the overall check, named after the pipeline | Azure Pipelines |
+
+  Require the checks of every system you run, and park any system you don't require.
+  Renaming a job (Actions) or the pipeline (Azure) renames its check, and a required check
+  that never reports blocks every PR, so settle names first. For Azure, don't require the
+  per-job checks (`<pipeline> (<job>)`), for the same reason. A check appears in the list
+  only *after* it has run once: open a throwaway PR to make it report, then require it.
 - ✅ Require branches to be up to date before merging
 - ✅ Include administrators (no bypass) — the redlines apply to everyone
 - ✅ Block force pushes
@@ -186,11 +233,11 @@ Branch protection is what makes every other gate real. Configure on GitHub:
 >
 > **Break-glass (the gate on `main` itself is broken).** Because PRs are judged by
 > `main`'s gate, a PR that fixes a broken gate can be blocked by it. An admin
-> temporarily removes the required check in GitHub (Settings → Rules → Rulesets, or
+> temporarily removes the required checks in GitHub (Settings → Rules → Rulesets, or
 > Settings → Branches for classic protection), runs the *fixed*
 > `scripts/ci-checks.sh <base> <head>` by hand against the fix PR and pastes the output
 > into the fix's task file, merges the fix PR with the usual reviews, and restores the
-> check immediately. The PR's Azure build still shows red; with the check not required,
+> checks immediately. The PR's CI run still shows red; with the check not required,
 > that doesn't block the merge. Record who, when and why in that
 > task file. Never bypass for anything else.
 
@@ -220,7 +267,7 @@ hand-edit `docs/repos/**`; edit the source repo's `/docs`.
 A repo is properly enforced when **all** are true:
 - [ ] No `[insert … here]` placeholders remain (CI green).
 - [ ] Hooks installed locally by each contributor (`core.hooksPath` = `.githooks`).
-- [ ] The Azure DevOps pipeline's check appears on every PR and is required on `main`, with Azure Pipelines as its source.
+- [ ] The checks of the CI system you chose (§ 4) appear on every PR and are required on `main` with their expected source (§ 5); any system you don't require is parked.
 - [ ] `main` is protected: PR required, the CI check required, admins included, force-push blocked, and approvals set to match headcount (**0 solo**; **≥1 + code-owner review** once a second maintainer joins).
 - [ ] `CODEOWNERS` routes to real handles.
 - [ ] Docs Tier 1 bootstrapped (`/docs/contracts.md` etc. exist).

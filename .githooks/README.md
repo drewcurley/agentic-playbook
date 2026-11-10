@@ -29,9 +29,22 @@ git config --unset core.hooksPath
 
 ## Bypass policy
 
-`--no-verify` skips local hooks but **does not skip Continuous Integration**. The same checks run server-side via `scripts/ci-checks.sh` — currently in **Azure DevOps** (`azure-pipelines.yml`), since GitHub Actions is not yet approved for general org use (the Actions equivalent is parked at `.github/workflows-disabled/checks.yml`). CI will block the merge. Don't waste a round trip — fix the issue locally.
+`--no-verify` skips local hooks but **does not skip Continuous Integration**. The same checks run server-side via `scripts/ci-checks.sh`, on GitHub Actions (`.github/workflows/checks.yml`) or Azure DevOps (`azure-pipelines.yml`). Once `main` requires those checks, CI blocks the merge. Don't waste a round trip — fix the issue locally.
 
 Genuine false positives (e.g., a regex hit on a legitimate test fixture) are resolved by sanitizing the diff or, as a last resort, an Architectural Decision Record approved by the Directly Responsible Individual.
+
+## Matching CI's shellcheck locally
+
+CI lints `.githooks/*` and `scripts/**/*.sh` with **shellcheck v0.10.0**, pinned by checksum in both CI files (`SHELLCHECK_VERSION` and `SHELLCHECK_SHA256`). A newer local shellcheck can flag things CI doesn't, and the reverse. To run the exact CI binary on Linux x86_64:
+
+```sh
+curl -sSfLo /tmp/shellcheck.tar.xz https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz
+echo "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87  /tmp/shellcheck.tar.xz" | sha256sum -c -
+tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+/tmp/shellcheck-v0.10.0/shellcheck .githooks/pre-commit .githooks/commit-msg .githooks/pre-push scripts/*.sh scripts/test/*.sh
+```
+
+On macOS, download the matching `darwin` file from the same release page and verify its SHA-256 against the checksum the release publishes for it, or run the commands above in a Linux container. When the pin is bumped in the CI files, `scripts/test/test-ci-wiring.sh` fails until this section names the new version and checksum.
 
 ## Customizing for your stack
 

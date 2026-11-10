@@ -44,6 +44,13 @@ finish() {
 
 echo "test-deck.sh"
 
+# CI's deck-gate leaves this marker when the target branch's scripts/ci-deck-needed.sh
+# says the PR changes nothing this suite reads (starter T-022).
+if [ -n "${DECK_SKIP_FILE:-}" ] && [ -e "$DECK_SKIP_FILE" ]; then
+  echo "  SKIP: this PR changes no file the deck suite reads (scripts/ci-deck-needed.sh); not building the deck."
+  exit 0
+fi
+
 # Runs before any Python, so a repo that dropped the deck needs no interpreter at all.
 present=0
 for f in Agentic-Starter-Overview.pptx scripts/build_deck.py scripts/requirements-deck.txt; do
@@ -176,6 +183,12 @@ for name, job, cred in (("azure-pipelines.yml", ado, "persistCredentials: false"
     hits = [f for f in FORBIDDEN if f in job]
     chk(not hits, f"{name}: the deck job has no secrets, artifacts, caches or job links (found {hits})")
     chk("DECK_BUILD_REQUIRED: '1'" in job, f"{name}: the deck job requires the build tier")
+    chk(("fetchDepth: 2" if name == "azure-pipelines.yml" else "fetch-depth: 2") in job,
+        f"{name}: the deck job checks out two commits deep, for the deck-gate")
+    chk("git show 'HEAD^1:scripts/ci-deck-needed.sh'" in job and "DECK_SKIP_FILE:" in job,
+        f"{name}: the deck job asks the target's ci-deck-needed.sh before building")
+    chk(("##[warning]Deck build skipped" if name == "azure-pipelines.yml" else "::notice::Deck build skipped") in job,
+        f"{name}: a skipped deck build says so in the CI log")
     refs = set(re.findall(r"\$\(([^)]*)\)|\$\{\{\s*([^}]*?)\s*\}\}", job))
     other = sorted(r for pair in refs for r in pair if r and r not in ALLOWED_REFS)
     chk(not other, f"{name}: the deck job maps no other variables (found {other})")
@@ -194,6 +207,9 @@ adopting = read("ADOPTING.md")
 chk("git rm Agentic-Starter-Overview.pptx scripts/build_deck.py scripts/requirements-deck.txt" in adopting,
     "ADOPTING.md lists the three files that drop the deck")
 chk("Keep `scripts/test/test-deck.sh`" in adopting, "ADOPTING.md says to keep the suite when dropping the deck")
+deck_src = read("scripts/build_deck.py")
+chk("GitHub Actions by default, or Azure DevOps" in deck_src and "GitHub Actions (default) or Azure DevOps" in deck_src,
+    "the deck names GitHub Actions as the default CI, Azure DevOps as the alternative")
 
 print("done|")
 PY
@@ -418,15 +434,17 @@ echo "-- SELF-TEST --"
 gh_ci=.github/workflows-disabled/checks.yml
 [ -f "$root/.github/workflows/checks.yml" ] && gh_ci=.github/workflows/checks.yml
 
+# fx: a copy of exactly the files scripts/ci-deck-needed.sh lists as the deck suite's
+# inputs (starter T-022). The unmodified copy must pass, so a file this suite reads but
+# that list omits fails here instead of letting a PR skip the deck job.
 fx() {
   rm -rf "$tmp/fx"
-  mkdir -p "$tmp/fx/scripts" "$tmp/fx/$(dirname "$gh_ci")"
-  for f in scripts/build_deck.py scripts/requirements-deck.txt Agentic-Starter-Overview.pptx \
-           azure-pipelines.yml "$gh_ci" .github/CODEOWNERS ADOPTING.md; do
-    [ -f "$root/$f" ] && cp "$root/$f" "$tmp/fx/$f"
+  sh "$root/scripts/ci-deck-needed.sh" --list | while IFS= read -r f; do
+    [ -f "$root/$f" ] || continue
+    mkdir -p "$tmp/fx/$(dirname "$f")" && cp "$root/$f" "$tmp/fx/$f"
   done
 }
-child() { DECK_ROOT="$tmp/fx" DECK_SELFTEST=0 DECK_PYTHON="$py" sh "$test_dir/test-deck.sh" 2>&1; }
+child() { DECK_ROOT="$tmp/fx" DECK_SELFTEST=0 DECK_SKIP_FILE='' DECK_PYTHON="$py" sh "$test_dir/test-deck.sh" 2>&1; }
 
 # expect_fail <description> <FAIL text> <child output>: the named assertion must be the
 # one that fires, so a generator crash doesn't count as caught.
@@ -456,6 +474,11 @@ PY
 fx
 out=$(child); st=$?
 if [ "$st" -eq 0 ]; then ok "the unmodified copy passes"; else bad "the unmodified copy passes (got: $(printf '%s\n' "$out" | grep FAIL | head -n 3))"; fi
+: > "$tmp/skip-marker"
+out=$(DECK_ROOT="$tmp/fx" DECK_SELFTEST=0 DECK_SKIP_FILE="$tmp/skip-marker" DECK_PYTHON="$tmp/nonexistent" sh "$test_dir/test-deck.sh" 2>&1); st=$?
+if [ "$st" -eq 0 ] && printf '%s' "$out" | grep -qF "SKIP: this PR changes no file the deck suite reads"
+then ok "the deck-gate's marker skips the suite before any Python runs"
+else bad "the deck-gate's marker skips the suite before any Python runs (rc=$st, out: $out)"; fi
 
 g=scripts/build_deck.py
 pad=$(printf 'padding %.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60)
@@ -540,7 +563,7 @@ for setting in "continue-on-error: true" "if: false"; do
     $setting" "the GitHub workflow: the deck job has no secrets"
 done
 mutate "self-hosted runner (GitHub)" "$gh_ci" "$job_gh
-    runs-on: ubuntu-latest" "$job_gh
+    runs-on: ubuntu-24.04" "$job_gh
     runs-on: self-hosted" "the GitHub workflow: the deck job has no secrets"
 mutate "no hash check (GitHub)" "$gh_ci" " --require-hashes" "" "the GitHub workflow: the deck install requires hashes"
 mutate "credentials kept (GitHub)" "$gh_ci" "persist-credentials: false" "persist-credentials: true" "the GitHub workflow: the deck job checks out without credentials"
@@ -669,7 +692,7 @@ else bad "all three gone: a SKIP line and exit 0 (status $st: $out)"; fi
 
 # --- the required tier and the runner itself -------------------------------------------
 printf '#!/bin/sh\nexit 1\n' > "$tmp/nopptx"; chmod +x "$tmp/nopptx"
-absent() { DECK_ROOT="$tmp/fx" DECK_SELFTEST=0 DECK_PYTHON="$tmp/nopptx" DECK_BUILD_REQUIRED=${1:-0} TF_BUILD=${2:-} GITHUB_ACTIONS=${3:-} sh "$test_dir/test-deck.sh" 2>&1; }
+absent() { DECK_ROOT="$tmp/fx" DECK_SELFTEST=0 DECK_SKIP_FILE='' DECK_PYTHON="$tmp/nopptx" DECK_BUILD_REQUIRED=${1:-0} TF_BUILD=${2:-} GITHUB_ACTIONS=${3:-} sh "$test_dir/test-deck.sh" 2>&1; }
 missing="python-pptx is importable via"
 fx
 expect_fail "required tier without python-pptx" "$missing" "$(absent 1)"
@@ -683,7 +706,7 @@ else bad "locally, without python-pptx, a visible SKIP line (status $st: $out)";
 # A stand-in interpreter that claims python-pptx and then misbehaves in the build tier.
 # shellcheck disable=SC2016  # the $1 belongs to the generated stub
 stub() { printf '#!/bin/sh\ncase "$1" in -c) exit 0 ;; esac\ncat >/dev/null\n%s\n' "$1" > "$tmp/stub"; chmod +x "$tmp/stub"; }
-stubbed() { DECK_ROOT="$tmp/fx" DECK_SELFTEST=0 DECK_PYTHON="$tmp/stub" sh "$test_dir/test-deck.sh" 2>&1; }
+stubbed() { DECK_ROOT="$tmp/fx" DECK_SELFTEST=0 DECK_SKIP_FILE='' DECK_PYTHON="$tmp/stub" sh "$test_dir/test-deck.sh" 2>&1; }
 stub 'echo boom >&2; exit 3'; expect_fail "a tier that crashes" "build tier exited 3: boom" "$(stubbed)"
 stub 'exit 0';                expect_fail "a tier that prints nothing" "build tier did not finish" "$(stubbed)"
 stub 'echo "done|"';          expect_fail "a tier that asserts nothing" "build tier made no assertions" "$(stubbed)"
