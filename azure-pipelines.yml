@@ -170,15 +170,23 @@ jobs:
           if [ "$(Build.Reason)" != "PullRequest" ]; then
             echo "Not a PR build; skipping PR-body template check."; exit 0
           fi
-          if [ -z "${GITHUB_TOKEN:-}" ]; then
-            echo "##[warning]GITHUB_TOKEN not set; skipping PR-body template check. Set it (repo scope) to enable."
-            exit 0
-          fi
+          # An undefined pipeline variable reaches env: as its own "$(NAME)" text, not
+          # empty, so "unset" is either. (The pattern avoids macro syntax so Azure
+          # can't expand it into the token.)
+          case "${GITHUB_TOKEN:-}" in
+            ''|'$('*)
+              echo "##[warning]GITHUB_TOKEN not set; skipping PR-body template check. Set it (repo scope) to enable."
+              exit 0 ;;
+          esac
           pr="$(System.PullRequest.PullRequestNumber)"
           repo="$(Build.Repository.Name)"   # owner/repo for GitHub-connected pipelines
-          body=$(curl -sSfL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-                   -H "Accept: application/vnd.github+json" \
-                   "https://api.github.com/repos/${repo}/pulls/${pr}" | jq -r '.body // ""')
+          # Fetch first, then parse: in a pipe, curl's failure is lost and an empty
+          # body reads as six missing sections.
+          pr_json=$(curl -sSfL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                      -H "Accept: application/vnd.github+json" \
+                      "https://api.github.com/repos/${repo}/pulls/${pr}") \
+            || { echo "##[error]Couldn't read PR #${pr} from the GitHub API; check that GITHUB_TOKEN is valid and can read ${repo}."; exit 1; }
+          body=$(printf '%s' "$pr_json" | jq -r '.body // ""')
           missing=0
           for section in '## Task' '## Summary' '## Agent sign-offs' '## Human review' '## Risk' '## Redlines'; do
             printf '%s' "$body" | grep -qF "$section" || { echo "##[error]PR body missing section: $section"; missing=1; }
