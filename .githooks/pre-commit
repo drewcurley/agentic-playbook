@@ -2,8 +2,9 @@
 # Pre-commit hook for agentic_starter projects.
 # Enforces the procedure in AGENTS.md at commit time.
 # Install: scripts/setup-hooks.sh (sets core.hooksPath to .githooks/).
-# CI mirrors these checks server-side via scripts/ci-checks.sh (Azure DevOps
-# azure-pipelines.yml; GH Actions parked) — so --no-verify is not a viable bypass.
+# CI mirrors these checks server-side via scripts/ci-checks.sh (GitHub Actions
+# .github/workflows/checks.yml, or Azure DevOps azure-pipelines.yml) — so
+# --no-verify is not a viable bypass.
 
 set -e
 # Bytes, not characters: BSD sed/grep stop on invalid UTF-8, which binary content

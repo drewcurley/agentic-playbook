@@ -288,7 +288,7 @@ s = slide()
 kicker(s, "Pillar 3 — Enforcement"); title(s, "Conventions that aren't optional")
 layers = [
     ("LOCAL  ·  git hooks","No commits to main · no placeholders · secret scan · Task-ID required · /docs consensus assertion","Runs on every commit & push"),
-    ("SERVER  ·  CI mirror","Same checks run server-side (Azure DevOps now; GitHub Actions parked). These checks come from the branch a PR merges into, so loosening them takes a visible edit.","--no-verify can't bypass this, once CI is required"),
+    ("SERVER  ·  CI mirror","Same checks run server-side (GitHub Actions by default, or Azure DevOps). These checks come from the branch a PR merges into, so loosening them takes a visible edit.","--no-verify can't bypass this, once CI is required"),
     ("BRANCH  ·  protection","PR required · no force-push · admins included · CI check required · human approval (team)","The keystone — makes the rest real"),
 ]
 y=2.1; rh=1.3
@@ -415,7 +415,7 @@ journey = [
     ("Fork / copy","Keep the layout. Delete .starter/ (template history) if you'll never pull updates."),
     ("Replace placeholders","grep -rl --exclude-dir=.starter '\\[" "insert ' .  — stack, handles, names"),  # split so that grep doesn't list this file
     ("Install hooks","setup-hooks.sh  (or setup-workspace.sh)"),
-    ("Wire CI","Azure DevOps pipeline + PR build validation"),
+    ("Wire CI","GitHub Actions (default) or Azure DevOps"),
     ("Protect main","PR required · approvals to match headcount"),
     ("First agent session","Agent bootstraps /docs before any feature work"),
 ]

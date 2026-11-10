@@ -42,6 +42,7 @@
 | [T-019](./T-019.md) | Make the ledger test independent of file listing order | devops | — | chore/t-019-ledger-test-order | #13 | .starter/tasks/T-019.md#review-artifact |
 | [T-020](./T-020.md) | Tell agents to wait for CI themselves | devops | — | chore/t-020-carry-ci-waits | #14 | .starter/tasks/T-020.md#review-artifact |
 | [T-021](./T-021.md) | Fix what the first real Azure DevOps runs found | devops | — | chore/t-021-azure-verified | #17 | .starter/tasks/T-021.md#review-artifact |
+| [T-022](./T-022.md) | GitHub Actions on by default, Azure DevOps supported | devops | — | chore/t-022-actions-first-class | #18 | .starter/tasks/T-022.md#review-artifact |
 
 ## Cancelled / Superseded
 

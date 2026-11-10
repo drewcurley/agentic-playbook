@@ -46,11 +46,15 @@ then ok "makes hooks executable"; else bad "makes hooks executable"; fi
 # 2) Every CI file/script the guidance names exists (it once pointed at
 #    .github/workflows/checks.yml after that file was parked — starter T-012).
 named=$(printf '%s\n' "$out" | grep -oE '[A-Za-z0-9_./-]+\.(yml|yaml|sh)' || true)
-# ci_path_ok <repo> <path>: the path exists, or it's the parked workflow and it has been
-# moved into place as ADOPTING.md § 4 describes.
+# ci_path_ok <repo> <path>: the path exists, or it's the GitHub workflow and the repo
+# keeps it at the other path (active, or parked as ADOPTING.md § 4b describes).
 ci_path_ok() {
   [ -f "$1/$2" ] && return 0
-  [ "$2" = .github/workflows-disabled/checks.yml ] && [ -f "$1/.github/workflows/checks.yml" ]
+  case "$2" in
+    .github/workflows/checks.yml) [ -f "$1/.github/workflows-disabled/checks.yml" ] ;;
+    .github/workflows-disabled/checks.yml) [ -f "$1/.github/workflows/checks.yml" ] ;;
+    *) return 1 ;;
+  esac
 }
 missing_paths=''
 for p in $named; do ci_path_ok "$playbook_src" "$p" || missing_paths="$missing_paths $p"; done
@@ -59,6 +63,9 @@ else bad "names missing CI file(s):${missing_paths:- none named}"; fi
 mkdir -p "$nogit/moved/.github/workflows"; : > "$nogit/moved/.github/workflows/checks.yml"
 if ci_path_ok "$nogit/moved" .github/workflows-disabled/checks.yml; then ok "accepts the parked path once the workflow is moved into place"
 else bad "accepts the parked path once the workflow is moved into place"; fi
+mkdir -p "$nogit/parked/.github/workflows-disabled"; : > "$nogit/parked/.github/workflows-disabled/checks.yml"
+if ci_path_ok "$nogit/parked" .github/workflows/checks.yml; then ok "accepts the active path in a repo that parked the workflow"
+else bad "accepts the active path in a repo that parked the workflow"; fi
 if ci_path_ok "$nogit/moved" azure-pipelines.yml; then bad "still reports other missing CI files"
 else ok "still reports other missing CI files"; fi
 

@@ -15,9 +15,9 @@ chmod +x .githooks/pre-commit .githooks/commit-msg .githooks/pre-push 2>/dev/nul
 cat <<EOF
 Hooks installed.
   git will now use .githooks/ for pre-commit, commit-msg, and pre-push.
-  CI mirror: scripts/ci-checks.sh, run by azure-pipelines.yml (GitHub Actions
-  parked at .github/workflows-disabled/checks.yml). NOT enforced until you create
-  the Azure DevOps pipeline and require its check on main (AGENTS.md § 7).
+  CI mirror: scripts/ci-checks.sh, run by GitHub Actions (.github/workflows/checks.yml)
+  or Azure DevOps (azure-pipelines.yml). NOT enforced until main requires its
+  checks (ADOPTING.md § 4-5).
 
 To opt out (not recommended):
   git config --unset core.hooksPath

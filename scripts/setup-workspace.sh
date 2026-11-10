@@ -166,9 +166,9 @@ cat <<EOF
 
 Done. Each present repo now enforces the AGENTS.md procedure locally.
 Reminder: hooks are per-repo. CI must also run the mirror (scripts/ci-checks.sh via
-azure-pipelines.yml, or the un-parked GitHub Actions workflow) in EACH repo so
---no-verify can't bypass the gates server-side. It is NOT enforced until wired up
-(Azure DevOps pipeline + its check required on main; see AGENTS.md § 7).
+the GitHub Actions workflow or azure-pipelines.yml) in EACH repo so --no-verify
+can't bypass the gates server-side. It is NOT enforced until main requires the
+checks in each repo (ADOPTING.md § 4-5).
 
 Next:
   - Fill in docs/integration-map.md with the cross-repo seams.

@@ -1,6 +1,6 @@
 # ADR 0002 — CI runs on Azure DevOps; GitHub Actions parked
 
-**Status:** accepted
+**Status:** superseded by [ADR 0005](./0005-ci-on-github-actions-and-azure-devops.md) (T-022)
 **Date:** 2026-06-26
 **Deciders:** repo owner + config/infra review (Architect + DevOps, task T-004)
 **Supersedes / relates to:** the original GitHub-Actions-based CI mirror (now parked).

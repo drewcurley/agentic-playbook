@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
-# The Azure PR-body step (starter T-021): runs the "pr-body-check" block from
-# azure-pipelines.yml with Azure's macros filled in and a stub curl on PATH, so the
-# skip, fetch-failure, parse-failure and missing-section paths are checked with no
-# network. Each case runs under bash (what Azure uses), sh, and dash where present.
+# The Azure PR-body step (starter T-021 and starter T-022): runs the "pr-body-check" block from
+# azure-pipelines.yml with Azure's env vars set and a stub curl on PATH, so the skip,
+# fail-closed, fetch-failure, parse-failure and missing-section paths are checked with
+# no network. Each case runs under bash (what Azure uses), sh, and dash where present.
 #
 # Run:  sh scripts/test/test-pr-body-check.sh
 #       PR_BODY_ROOT=<dir> sh scripts/test/test-pr-body-check.sh   (check another tree)
@@ -11,6 +11,8 @@
 
 set -u
 LC_ALL=C; export LC_ALL
+# Inside Azure these are already set; every case sets the ones it needs.
+unset TF_BUILD BUILD_REASON SYSTEM_PULLREQUEST_PULLREQUESTNUMBER BUILD_REPOSITORY_NAME GITHUB_TOKEN
 
 test_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 root="${PR_BODY_ROOT:-$(CDPATH='' cd -- "$test_dir/../.." && pwd)}"
@@ -37,12 +39,12 @@ blk=$(sed -n '/# BEGIN pr-body-check/,/# END pr-body-check/p' "$yml" | sed 's/^[
 if [ "$n" -eq 1 ] && printf '%s\n' "$blk" | grep -q '# END pr-body-check'; then ok "the pr-body-check block is marked once in azure-pipelines.yml"
 else bad "the pr-body-check block is marked once in azure-pipelines.yml (found $n)"; echo; echo "Results: $pass passed, $fail failed"; exit 1; fi
 
-# Azure expands $(name) macros in script text before it runs, so only these may
-# appear. A $(GITHUB_TOKEN) there would write the secret into the script file.
-macros=$(printf '%s\n' "$blk" | grep -o '\$([A-Za-z_][A-Za-z0-9_.]*)' | sort -u)
-other=$(printf '%s\n' "$macros" | grep -vxF -e '$(Build.Reason)' -e '$(System.PullRequest.PullRequestNumber)' -e '$(Build.Repository.Name)' || true)
-if [ -z "$other" ]; then ok "the block uses only the three allowed Azure macros"
-else bad "the block uses only the three allowed Azure macros (also: $(printf '%s' "$other" | tr '\n' ' '))"; fi
+# Azure expands $(name) macros in script text before it runs; the block reads env
+# vars instead, so none may appear. A $(GITHUB_TOKEN) there would write the secret
+# into the script file.
+macros=$(printf '%s\n' "$blk" | grep -o '\$([A-Za-z_][A-Za-z0-9_.]*)' | sort -u | tr '\n' ' ')
+if [ -z "$macros" ]; then ok "the block uses no Azure \$(name) macros"
+else bad "the block uses no Azure \$(name) macros (found: $macros)"; fi
 # Azure's other two expression forms, ${{ }} at compile time and $[ ] at run time.
 if printf '%s\n' "$blk" | grep -qF -e '${{' -e '$['; then bad "the block uses no \${{ }} or \$[ ] expressions"
 else ok "the block uses no \${{ }} or \$[ ] expressions"; fi
@@ -70,6 +72,8 @@ mkdir -p "$tmp/bin" "$tmp/nojq"
 cat > "$tmp/bin/curl" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$@" >> "$STUB_LOG"
+# Read stdin only when told to (-H @-), so the stub can never hang.
+for a in "$@"; do [ "$a" = "@-" ] && cat >> "$STUB_LOG.in"; done
 case "${STUB_CURL:-ok}" in
   fail) echo "curl: (22) The requested URL returned error: 401" >&2; exit 22 ;;
   html) printf '<html>a proxy page</html>\n' ;;
@@ -91,11 +95,10 @@ command -v bash >/dev/null 2>&1 && shells="bash $shells"
 command -v dash >/dev/null 2>&1 && shells="$shells dash"
 
 # run <shell> <reason> <token: unset|empty|literal|set> [curl mode] [path]. Sets rc, out.
+# The PR number and repo come from $PRNUM and $REPO when set (else 42 and owner/repo).
+printf '%s\n' "$blk" > "$tmp/step.sh"
 run() {
-  printf '%s\n' "$blk" | sed -e "s|\$(Build\.Reason)|$2|g" \
-    -e 's|\$(System\.PullRequest\.PullRequestNumber)|42|g' \
-    -e 's|\$(Build\.Repository\.Name)|owner/repo|g' > "$tmp/step.sh"
-  rm -f "$tmp/curl.log"
+  rm -f "$tmp/curl.log" "$tmp/curl.log.in"
   out=$(
     case "$3" in
       (unset) unset GITHUB_TOKEN ;;
@@ -103,8 +106,10 @@ run() {
       (literal) GITHUB_TOKEN='$(GITHUB_TOKEN)'; export GITHUB_TOKEN ;;
       (set) GITHUB_TOKEN=$token; export GITHUB_TOKEN ;;
     esac
-    STUB_LOG="$tmp/curl.log" STUB_JSON="$tmp/pr.json" STUB_CURL="${4:-ok}" \
-      PATH="${5:-$tmp/bin:$PATH}" "$(command -v "$1")" "$tmp/step.sh" 2>&1
+    TF_BUILD=True BUILD_REASON=$2 SYSTEM_PULLREQUEST_PULLREQUESTNUMBER="${PRNUM-42}" \
+      BUILD_REPOSITORY_NAME="${REPO-owner/repo}" \
+      STUB_LOG="$tmp/curl.log" STUB_JSON="$tmp/pr.json" STUB_CURL="${4:-ok}" \
+      PATH="${5:-$tmp/bin:$PATH}" "$(command -v "$1")" "$tmp/step.sh" 2>&1 </dev/null
   ); rc=$?
   if printf '%s' "$out" | grep -qF "$token"; then bad "[$1] the token never appears in the output ($2/$3/${4:-ok})"; fi
 }
@@ -148,10 +153,30 @@ for s in $shells; do
   run "$s" PullRequest set
   if [ "$rc" -eq 0 ] && [ "$(missing_lines)" -eq 0 ]; then ok "[$s] a complete body passes"
   else bad "[$s] a complete body passes (rc=$rc, out: $out)"; fi
-  if grep -qx 'https://api.github.com/repos/owner/repo/pulls/42' "$tmp/curl.log" \
-     && grep -qx "Authorization: Bearer $token" "$tmp/curl.log"
-  then ok "[$s] it asks GitHub for this PR, with the token"
-  else bad "[$s] it asks GitHub for this PR, with the token (curl got: $(tr '\n' ' ' < "$tmp/curl.log"))"; fi
+  if grep -qx 'https://api.github.com/repos/owner/repo/pulls/42' "$tmp/curl.log"
+  then ok "[$s] it asks GitHub for this PR"
+  else bad "[$s] it asks GitHub for this PR (curl got: $(tr '\n' ' ' < "$tmp/curl.log"))"; fi
+  # The token goes in on stdin as the whole header, never in curl's arguments.
+  if awk 'prev == "-H" && $0 == "@-" { f = 1 } { prev = $0 } END { exit !f }' "$tmp/curl.log" \
+     && ! grep -q 'Bearer' "$tmp/curl.log" \
+     && [ "$(cat "$tmp/curl.log.in" 2>/dev/null)" = "Authorization: Bearer $token" ]
+  then ok "[$s] the token header reaches curl on stdin, not in its arguments"
+  else bad "[$s] the token header reaches curl on stdin, not in its arguments (args: $(tr '\n' ' ' < "$tmp/curl.log"))"; fi
+done
+
+# A PR build without a usable PR number or repo name fails before the token is used.
+body_json "$full"
+for s in $shells; do
+  for bad_pr in '' 'abc' '42;x'; do
+    PRNUM=$bad_pr; run "$s" PullRequest set; unset PRNUM
+    if [ "$rc" -ne 0 ] && has "without a usable PR number" && ! called; then ok "[$s] PR number '$bad_pr' fails closed before calling GitHub"
+    else bad "[$s] PR number '$bad_pr' fails closed before calling GitHub (rc=$rc, out: $out)"; fi
+  done
+  for bad_repo in '' 'owner' 'owner/repo/x' 'own er/repo'; do
+    REPO=$bad_repo; run "$s" PullRequest set; unset REPO
+    if [ "$rc" -ne 0 ] && has "without a usable owner/repo name" && ! called; then ok "[$s] repo '$bad_repo' fails closed before calling GitHub"
+    else bad "[$s] repo '$bad_repo' fails closed before calling GitHub (rc=$rc, out: $out)"; fi
+  done
 done
 
 for s in $shells; do
