@@ -1,18 +1,18 @@
 # Azure DevOps pipeline — server-side mirror of .githooks/.
 #
 # ACTIVE CI for the starter while GitHub Actions is not yet approved for general
-# org use. Code lives in GitHub; this runs in Azure DevOps via an Azure Pipelines
-# "GitHub" service connection. Same checks as scripts/ci-checks.sh — the GitHub
+# org use. Code lives in GitHub; this runs in Azure DevOps, connected through the
+# Azure Pipelines GitHub App. Same checks as scripts/ci-checks.sh — the GitHub
 # Actions equivalent is parked at .github/workflows-disabled/checks.yml.
 #
 # ─────────────────────────────────────────────────────────────────────────────
 # ⚠️ REQUIRED SETUP PER REPO — the pipeline does NOT enforce anything until BOTH:
-#   1. This pipeline is created in your ADO project against the GitHub repo.
-#   2. PR validation is turned on. For GitHub-hosted repos, Azure DevOps IGNORES
-#      the `pr:` trigger below — you MUST add a Branch Policy → Build Validation
-#      on `main` (Project Settings → Repos → Branch policies) pointing at this
-#      pipeline, OR enable PR builds on the GitHub service connection. Without
-#      this, PRs get NO server-side gate and --no-verify fully bypasses the hooks.
+#   1. This pipeline is created in your ADO project against the GitHub repo
+#      (ADOPTING.md § 4). The `pr:` trigger below then builds every PR on its own;
+#      no Azure branch policy is needed (Build Validation is for Azure Repos only).
+#   2. Its check is required in GitHub branch protection on `main`, with Azure
+#      Pipelines as the expected source (ADOPTING.md § 5). Until then a red build
+#      blocks nothing and --no-verify fully bypasses the hooks.
 # A freshly-forked repo has NO enforced CI until the above is done. See AGENTS.md § 7.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -20,9 +20,8 @@ trigger:
   branches:
     include: [main, master]
 
-# NOTE: `pr:` is honored only for Azure Repos Git. For GitHub-hosted repos it is
-# IGNORED — configure PR validation as a branch policy (see header). Kept here for
-# the Azure-Repos case and as documentation of intent.
+# Builds every PR for a GitHub repo (verified in starter T-021). Leave the pipeline's
+# Triggers → "Override the YAML pull request trigger" unchecked, or this is ignored.
 pr:
   branches:
     include: ['*']
@@ -34,7 +33,10 @@ variables:
   # Pin shellcheck so a new release can't fail an unrelated PR, and so the gate is
   # reproducible. Bump deliberately. (ubuntu-latest ships shellcheck, but the
   # version floats; pinning a downloaded binary removes that drift + network apt risk.)
+  # The checksum pins the release file itself, since a release asset can be replaced
+  # (starter T-021). Keep both equal in the GitHub workflow; test-ci-wiring.sh checks.
   SHELLCHECK_VERSION: v0.10.0
+  SHELLCHECK_SHA256: 6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87
 
 jobs:
   - job: scripts
@@ -44,11 +46,15 @@ jobs:
         fetchDepth: 0
       - script: |
           set -e
-          # Pinned shellcheck binary (no apt; reproducible). Falls back to apt only
-          # if the download is unavailable, with a loud warning.
+          # Pinned, checksummed shellcheck binary (reproducible). A checksum mismatch
+          # fails the job; only a failed download falls back to apt, with a loud warning.
           url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
-          if curl -sSfL "$url" | tar -xJ; then
-            sc="shellcheck-${SHELLCHECK_VERSION}/shellcheck"
+          tarball="$(Agent.TempDirectory)/shellcheck.tar.xz"
+          if curl -sSfL -o "$tarball" "$url"; then
+            echo "${SHELLCHECK_SHA256}  $tarball" | sha256sum -c - \
+              || { echo "##[error]shellcheck ${SHELLCHECK_VERSION} doesn't match its pinned checksum; not running it."; exit 1; }
+            tar -xJf "$tarball" -C "$(Agent.TempDirectory)"
+            sc="$(Agent.TempDirectory)/shellcheck-${SHELLCHECK_VERSION}/shellcheck"
           else
             echo "##[warning]Could not fetch pinned shellcheck; falling back to apt (version may drift)."
             sudo apt-get update -qq && sudo apt-get install -y shellcheck
@@ -80,6 +86,8 @@ jobs:
         displayName: aggregate-docs.sh fixture tests
       - script: sh scripts/test/test-claude-settings.sh
         displayName: Claude Code push-rule tests
+      - script: sh scripts/test/test-pr-body-check.sh
+        displayName: PR-body check fixture tests
 
   # Third-party Python packages run here and nowhere else (starter T-016): no credentials,
   # no secrets, no artifacts, and no job waits on this one. scripts/test/test-deck.sh checks that.
@@ -160,30 +168,45 @@ jobs:
         displayName: procedure checks (mirror of .githooks/)
 
       # PR-body template check. The PR description lives in GitHub (not ADO), so it
-      # needs a GitHub token, not System.AccessToken. It is OPT-IN: set a pipeline
-      # secret variable GITHUB_TOKEN (repo scope) to enable it. Without the token
-      # the step is skipped with a notice rather than silently passing or failing —
-      # the per-PR template completeness is also checked by human review + the PR
-      # template itself, so this is a belt-and-suspenders gate.
+      # needs a GitHub token, not System.AccessToken. It is OPT-IN: set a secret
+      # pipeline variable GITHUB_TOKEN holding a fine-grained token for this repo only,
+      # with read-only Pull requests access and an expiry. Without it (and on fork PRs,
+      # which never get secrets) the step is skipped with a warning rather than
+      # silently passing or failing. The per-PR template completeness is also checked
+      # by human review + the PR template itself, so this is a belt-and-suspenders gate.
       - script: |
+          # BEGIN pr-body-check (starter T-021). scripts/test/test-pr-body-check.sh runs it.
           set -e
           if [ "$(Build.Reason)" != "PullRequest" ]; then
             echo "Not a PR build; skipping PR-body template check."; exit 0
           fi
-          if [ -z "${GITHUB_TOKEN:-}" ]; then
-            echo "##[warning]GITHUB_TOKEN not set; skipping PR-body template check. Set it (repo scope) to enable."
-            exit 0
-          fi
+          # An undefined pipeline variable reaches env: as its own unexpanded macro
+          # text, not as empty, so "unset" is either. The pattern stays out of macro
+          # syntax so Azure can't expand it into the token.
+          case "${GITHUB_TOKEN:-}" in
+            ''|'$('*)
+              echo "##[warning]GITHUB_TOKEN not set; skipping PR-body template check. Set it (a fine-grained token with read-only Pull requests access) to enable."
+              exit 0 ;;
+          esac
+          command -v jq >/dev/null 2>&1 \
+            || { echo "##[error]jq is not installed on this agent; can't check the PR body."; exit 1; }
           pr="$(System.PullRequest.PullRequestNumber)"
           repo="$(Build.Repository.Name)"   # owner/repo for GitHub-connected pipelines
-          body=$(curl -sSfL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-                   -H "Accept: application/vnd.github+json" \
-                   "https://api.github.com/repos/${repo}/pulls/${pr}" | jq -r '.body // ""')
+          # Fetch, then parse: in a pipe, curl's failure is lost and an empty body
+          # reads as six missing sections. (On a redirect, curl sends the
+          # Authorization header only to the same host.)
+          pr_json=$(curl -sSfL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                      -H "Accept: application/vnd.github+json" \
+                      "https://api.github.com/repos/${repo}/pulls/${pr}") \
+            || { echo "##[error]Couldn't read PR #${pr} from the GitHub API; check that GITHUB_TOKEN is valid and can read ${repo}."; exit 1; }
+          body=$(printf '%s' "$pr_json" | jq -er '.body // ""') \
+            || { echo "##[error]Couldn't parse the GitHub API's reply for PR #${pr}."; exit 1; }
           missing=0
           for section in '## Task' '## Summary' '## Agent sign-offs' '## Human review' '## Risk' '## Redlines'; do
             printf '%s' "$body" | grep -qF "$section" || { echo "##[error]PR body missing section: $section"; missing=1; }
           done
           [ "$missing" = "1" ] && exit 1 || true
+          # END pr-body-check
         displayName: pull request body must use the project template
         env:
           GITHUB_TOKEN: $(GITHUB_TOKEN)
