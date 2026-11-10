@@ -38,7 +38,7 @@ out=$( cd "$root" && sh "$sut" 2>&1 ); rc=$?
 
 # 1) Installs: exit 0, core.hooksPath set, hooks executable.
 if [ "$rc" -eq 0 ]; then ok "exits 0"; else bad "exits 0 (rc=$rc: $out)"; fi
-hp=$( cd "$root" && git config core.hooksPath || true )
+hp=$(git -C "$root" config core.hooksPath || true)
 if [ "$hp" = ".githooks" ]; then ok "sets core.hooksPath to .githooks"; else bad "sets core.hooksPath (got '$hp')"; fi
 if [ -x "$root/.githooks/pre-commit" ] && [ -x "$root/.githooks/commit-msg" ] && [ -x "$root/.githooks/pre-push" ]
 then ok "makes hooks executable"; else bad "makes hooks executable"; fi

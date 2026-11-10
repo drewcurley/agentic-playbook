@@ -378,14 +378,14 @@ All work happens on feature branches. **No direct pushes to `main`.**
 
 ### CI provider — Azure DevOps (GitHub Actions parked)
 
-GitHub Actions is **not yet approved for general org use**, so the active CI is **Azure DevOps** (code stays in GitHub; an Azure Pipelines GitHub service connection points at the repo). The pipeline lives at [`/azure-pipelines.yml`](./azure-pipelines.yml).
+GitHub Actions is **not yet approved for general org use**, so the active CI is **Azure DevOps** (code stays in GitHub; the Azure Pipelines GitHub App connects Azure to the repo). The pipeline lives at [`/azure-pipelines.yml`](./azure-pipelines.yml).
 
 - **Both CI systems call the same [`scripts/ci-checks.sh`](./scripts/ci-checks.sh)** — the single source of truth for the procedure gates (placeholders, secrets, task-ID, `/docs/*` consensus). This is what keeps them from drifting. On a PR build they run the **target branch's** copy (and its `.placeholder-allow`) through [`scripts/ci-pr-checks.sh`](./scripts/ci-pr-checks.sh), so a PR can't loosen the gate it is judged by; a gate change applies from the next PR on (starter T-014, `ADOPTING.md` § 5).
 - The **GitHub Actions equivalent is parked** at `.github/workflows-disabled/checks.yml` (GitHub only runs workflows under `.github/workflows/`, so it's inert). When Actions is approved, `git mv` it back into `.github/workflows/` — one move, no rewrite.
 - CodeQL default-setup (also Actions-based) is disabled for the same reason; re-enable it in repo settings when Actions is approved.
 - **Adopting teams:** wire `azure-pipelines.yml` into your Azure DevOps project for **each** repo (it's per-repo, like the hooks). If your team is approved for GitHub Actions, un-park the workflow instead.
 
-> ⚠️ **Default posture is CI-OFF until you wire it up.** Unlike a GitHub Actions workflow (which runs automatically once committed), an Azure DevOps pipeline does nothing until you (1) create it in your ADO project against the repo **and** (2) turn on PR validation. **For GitHub-hosted repos, Azure DevOps ignores the YAML `pr:` trigger** — you must add a **Branch Policy → Build Validation** on `main` pointing at the pipeline. Until both are done, a freshly-forked repo has **no server-side gate**, so `--no-verify` fully bypasses the hooks. The local hooks still run; the server-side backstop does not exist until configured. Treat wiring CI as part of repo setup, not an afterthought.
+> ⚠️ **Default posture is CI-OFF until you wire it up.** Unlike a GitHub Actions workflow (which runs automatically once committed), an Azure DevOps pipeline does nothing until you (1) create it in your ADO project against the repo **and** (2) require its check in GitHub branch protection on `main` (`ADOPTING.md` § 4–5). The YAML `pr:` trigger builds every PR to a GitHub repo on its own; no Azure branch policy is needed (Build Validation is for Azure Repos only). Until both are done, a freshly-forked repo has **no server-side gate**, so `--no-verify` fully bypasses the hooks. The local hooks still run; the server-side backstop does not exist until configured. Treat wiring CI as part of repo setup, not an afterthought.
 
 ### Hooks (one-time setup, every fresh clone)
 
