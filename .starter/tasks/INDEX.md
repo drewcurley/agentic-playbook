@@ -14,6 +14,7 @@
 | [T-009.3](./T-009.3.md) | AC IDs traced to passing tests | sdet | — | in-review | chore/sdd-tier1-plan | — |
 | [T-009.4](./T-009.4.md) | Review evidence bound to the diff | review-coordinator | — | in-review | chore/sdd-tier1-plan | — |
 | [T-009.5](./T-009.5.md) | Independent agent review in CI | architect | — | in-review | chore/sdd-tier1-plan | — |
+| [T-023](./T-023.md) | Spec a task before its plan is reviewed (definition of ready) | analyst | — | in-review | chore/t-023-spec-ready | — |
 
 ## Backlog
 
