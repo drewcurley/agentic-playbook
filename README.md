@@ -196,7 +196,7 @@ You ask the agent to implement a feature. It does this:
    - **Round 2 (Implementation):** Backend + Frontend + UX Designer review for feasibility and user impact.
    - **Round 3 (Verification):** Test Engineer + DevOps review for test coverage and deployment safety.
    - The **Review Coordinator** orchestrates rounds, gathers sign-offs, and produces the review artifact at `/docs/reviews/<branch>/`.
-4. **Writes the code** only after the plan is signed off.
+4. **Writes the code** only after the plan is signed off and the owner approves it. The agent sends a one-screen summary and waits for your yes, then records your words in the task file (`AGENTS.md` § 7 step 4b).
 5. **Runs the 3-round review on the build** itself.
 6. **Runs the regression-safety check** (`AGENTS.md` § 7) — diffs the change against `/docs/contracts.md`, confirms any touched route/schema/event/integration/env var was intended, reflects it back into `contracts.md` (+ `api.md`/`data-model.md`) in the same pull request, and runs the contract/integration/e2e tests that guard it. Records "contracts touched = …; compatibility = …" in the artifact.
 7. **Updates the task file in the same PR** — sets `state: completed`, fills in `branch`, `pr` (number), `review_artifact` path, appends to activity log. (No follow-up "mark it done" PR: the ledger update rides in the work PR, so `completed` reaches `main` only when this PR merges. The merge `commit` SHA isn't hand-recorded — it's derived later if needed.)
@@ -260,7 +260,7 @@ For typo fixes, lockfile bumps, comment-only edits, formatter-only churn, and ge
 
 ## Hard rules (from `AGENTS.md` § 8)
 
-- No code without a reviewed plan.
+- No code without a reviewed plan that the owner/DRI has approved.
 - No commit without agent sign-off.
 - No merge without at least one human approver per `.github/CODEOWNERS`.
 - No commit without passing automated tests.

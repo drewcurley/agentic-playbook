@@ -234,7 +234,7 @@ from pptx.util import Emu
 NEW = 8          # the workflow slide
 FOOTER_TOP = 6.9 # footer() sits at y=7.02, 10pt by design
 K = 0.52         # average glyph advance per em for Calibri
-CHANGED = (3, 6, 7, 8, 9, 10, 11, 26, 27)
+CHANGED = (3, 6, 7, 8, 9, 10, 11, 14, 26, 27)
 
 root = pathlib.Path(sys.argv[1])
 work = pathlib.Path(sys.argv[2]) / "build"
@@ -273,6 +273,8 @@ SAYS = [
     (3,  "major decisions also clear 7 strategic lenses"),
     (6,  "Three rounds, plus seven lenses for big calls"),
     (7,  "These checks come from the branch a PR merges into"),
+    (8,  "Rounds 1 → 2 → 3, then the owner approves it"),
+    (14, "3-round plan review, then the owner approves it"),
     (7,  "loosening them takes a visible edit"),
     (7,  "--no-verify can't bypass this, once CI is required"),
     (7,  "The checks fail closed"),
@@ -290,6 +292,8 @@ GONE = [
     (3,  "redlines + 7 strategic lenses"),
     (6,  "then seven lenses"),
     (7,  "so it can't quietly loosen"),
+    (8,  "signed off before any code"),
+    (14, "3-round review on the plan before a line of code"),
     (10, "merges without updating contracts.md"),
     (11, "grep -rl '[insert'"),
     (26, "mechanical, not aspirational"),
@@ -580,6 +584,10 @@ mutate "slide 3 lens claim" $g "major decisions also clear 7 strategic lenses" "
 mutate "slide 3 old claim" $g "non-negotiable redlines; major decisions" "non-negotiable redlines + 7 strategic lenses; major decisions" "slide 3 no longer says"
 mutate "slide 6 title" $g "Three rounds, plus seven lenses for big calls" "Three rounds, then seven lenses for big calls" "slide 6 says: Three rounds"
 mutate "slide 6 old claim" $g "Three rounds, plus seven lenses for big calls" "Three rounds, plus seven lenses for big calls, then seven lenses" "slide 6 no longer says"
+mutate "slide 8 owner approval" $g "Rounds 1 → 2 → 3, then the owner approves it" "Rounds 1 → 2 → 3, then build" "slide 8 says: Rounds 1 → 2 → 3, then the owner"
+mutate "slide 8 old gate wording" $g "Rounds 1 → 2 → 3, then the owner approves it" "Rounds 1 → 2 → 3, then the owner approves it, signed off before any code" "slide 8 no longer says: signed off before any code"
+mutate "slide 14 owner approval" $g "3-round plan review, then the owner approves it" "3-round plan review" "slide 14 says: 3-round plan review, then the owner"
+mutate "slide 14 old wording" $g "3-round plan review, then the owner approves it" "3-round review on the plan before a line of code" "slide 14 no longer says: 3-round review on the plan"
 mutate "slide 7 check source" $g "These checks come from the branch a PR merges into" "These checks come from the PR" "slide 7 says: These checks come from"
 mutate "slide 7 visible edit" $g "loosening them takes a visible edit" "they can't be loosened" "slide 7 says: loosening them"
 mutate "slide 7 tag" $g "once CI is required\"" "always\"" "slide 7 says: --no-verify"

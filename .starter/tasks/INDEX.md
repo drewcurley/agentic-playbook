@@ -43,6 +43,7 @@
 | [T-020](./T-020.md) | Tell agents to wait for CI themselves | devops | — | chore/t-020-carry-ci-waits | #14 | .starter/tasks/T-020.md#review-artifact |
 | [T-021](./T-021.md) | Fix what the first real Azure DevOps runs found | devops | — | chore/t-021-azure-verified | #17 | .starter/tasks/T-021.md#review-artifact |
 | [T-022](./T-022.md) | GitHub Actions on by default, Azure DevOps supported | devops | — | chore/t-022-actions-first-class | #18 | .starter/tasks/T-022.md#review-artifact |
+| [T-026](./T-026.md) | Human gate — the owner approves the reviewed plan before any build | review-coordinator | — | chore/t-026-owner-plan-approval | #19 | .starter/tasks/T-026.md#review-artifact |
 
 ## Cancelled / Superseded
 

@@ -15,7 +15,7 @@
 If you have 60 seconds, here's the whole thing:
 
 1. **Every session starts by reading `/docs/` and `tasks/INDEX.md`.** No exceptions. If `/docs/` is empty, the *only* job for that session is to build it (§ 6). The contract-critical inventory lives in `/docs/contracts.md` — the exhaustive, code-grounded list of every route, data contract, event, integration, environment variable, and invariant. Read it before changing anything.
-2. **9 specialist agents** review every non-trivial change in **3 rounds** (Analysis → Implementation → Verification). See § 1, § 2.
+2. **9 specialist agents** review every non-trivial change in **3 rounds** (Analysis → Implementation → Verification), then the owner/DRI approves the plan before any code (§ 7 step 4b). See § 1, § 2.
 3. **Each agent has redlines** in `.claude/agents/*.md` — non-negotiable lines. Crossing one BLOCKs the merge unless an Architectural Decision Record is filed with leadership approval.
 4. **Major decisions** also run through **7 strategic lenses** (§ 4). Surface conflicts between lenses; don't paper over them.
 5. **Tasks live one-per-file** in `/tasks/T-NNN.md`. Update the task file in the same pull request that delivers the work.
@@ -349,7 +349,10 @@ All work happens on feature branches. **No direct pushes to `main`.**
 1. **Open** (or update) the task file at [`tasks/T-NNN.md`](./tasks/). New tasks start as `proposed` — copy `_TEMPLATE.md` and pick the next free ID.
 2. Create branch from `main`. Update the task's **State → `in-review`** and fill in **Branch** in the frontmatter; append a line to the activity log.
 3. **Plan** the work — what changes, which files, what approach.
-4. Run the agent review on the **plan** — get sign-off *before* writing code. Update **State → `in-progress`** once approved.
+4. Run the agent review on the **plan** — get every required agent's sign-off *before* writing code.
+
+   **4b. Human gate — the owner/DRI approves the reviewed plan; record who and when in the task's activity log.** The approver is the DRI for the area (§ 3), or the sole human maintainer until `ownership.md` or CODEOWNERS names one. An agent never approves a plan, and never records an approval it didn't receive. Ask once, after the review, with a one-screen plain-language summary; the approver replies yes, no, or what to change. Silence or a timeout is never a yes. Record `- YYYY-MM-DD — plan approved by <name>: "<their exact words>" (<comment URL> | in session)`, and only then update **State → `in-progress`**. The full rules: [`tasks/README.md#plan-approval`](./tasks/README.md#plan-approval).
+
 5. **Build** — implement the approved plan.
 6. Run the agent review on the **build** — full cycle (or lightweight per § 5).
 7. **Test** — automated tests, not manual checks. Every code path exercised.
@@ -429,7 +432,7 @@ Record any intentional divergence from upstream as an Architectural Decision Rec
 
 > **Mechanically enforced vs. review-enforced.** Most gates below are enforced by the git hooks + CI mirror (`.githooks/`, `scripts/ci-checks.sh` run by `azure-pipelines.yml`) — a machine blocks them. A few — marked *(review-enforced)* — cannot be checked by a per-repo hook (e.g. anything cross-repo, since one repo's hook can't see a sibling). Those depend on the review cycle and human discipline. They are no less mandatory, but be honest that nothing mechanical catches them: the cost of separate repos instead of a monorepo.
 
-- No code without a reviewed plan.
+- No code without a reviewed plan that the owner/DRI has approved (§ 7 step 4b). *(review-enforced)* The record is written by the agent; the PR's human approver checks the quote or link. In a solo repo with 0 required approvals, nothing checks it.
 - No commit without agent sign-off.
 - No merge without at least one human approver per `.github/CODEOWNERS`. **(Solo-repo exception:** GitHub forbids self-approval, so a one-person repo runs 0 required approvals — the PR + CI gates still apply. The human-approver gate activates the moment a second maintainer joins; see `ADOPTING.md` step 5.)
 - No commit without passing automated tests.
