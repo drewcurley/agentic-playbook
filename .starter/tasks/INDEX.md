@@ -14,7 +14,7 @@
 | [T-009.3](./T-009.3.md) | AC IDs traced to passing tests | sdet | — | in-review | chore/sdd-tier1-plan | — |
 | [T-009.4](./T-009.4.md) | Review evidence bound to the diff | review-coordinator | — | in-review | chore/sdd-tier1-plan | — |
 | [T-009.5](./T-009.5.md) | Independent agent review in CI | architect | — | in-review | chore/sdd-tier1-plan | — |
-| [T-026](./T-026.md) | Human gate — the owner approves the reviewed plan before any build | review-coordinator | — | in-review | chore/t-026-owner-plan-approval | — |
+| [T-026](./T-026.md) | Human gate — the owner approves the reviewed plan before any build | review-coordinator | — | in-progress | chore/t-026-owner-plan-approval | — |
 
 ## Backlog
 
