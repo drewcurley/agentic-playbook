@@ -81,6 +81,17 @@ only Azure DevOps, keep it parked: `git mv .github/workflows/checks.yml
 Actions tab). If your org allows only some actions, allow `actions/checkout`, or every PR
 gets a red check from it. On private repos, see § 4a for the minutes it uses.
 
+**Existing forks only: syncing the plan-approval gate (starter T-026).** `AGENTS.md` § 7
+gains step 4b: after the agents review a plan, the owner/DRI approves it, and their exact
+words go in the task's activity log before any build. It is review-enforced. Expect the agent to stop
+after every plan review and wait for your reply: solo repos now get a human gate on every plan, where before the
+only human check was a PR that needs 0 approvals. Tasks already `in-progress`, or whose plan review
+has already finished, when you sync are grandfathered. While `.starter/` exists, `scripts/test/test-task-ledgers.sh` greps
+anchor sentences in `AGENTS.md`, `README.md`, `ADOPTING.md`, `tasks/README.md`,
+`tasks/_TEMPLATE.md`, `.github/pull_request_template.md` and the analyst and
+review-coordinator agent files: if you reworded them, keep those sentences. If you
+edited the overview deck, rebuild it (see the starter T-016 note).
+
 **Existing forks only: syncing the hook file modes (starter T-018).** Upstream now commits the
 hooks as executable. If you ran `setup-hooks.sh`, the sync can stop with "commit your changes
 or stash them" on `.githooks/*`. If those files show no changes of your own in `git diff`

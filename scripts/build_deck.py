@@ -321,7 +321,7 @@ for i, (name, body) in enumerate(stages):
     box(s, ax[i], ROW_A_Y, CW, ROW_A_H, fill=PANEL2)
     text(s, ax[i] + 0.2, ROW_A_Y + 0.18, CW - 0.4, 0.34, [[(name, 16, WHITE, True)]])
     text(s, ax[i] + 0.2, ROW_A_Y + 0.60, CW - 0.4, 0.52, [[(body, 12, MUTE)]], line_spacing=1.05)
-gates = [("REVIEW GATE","Plan review","Rounds 1 → 2 → 3, signed off before any code"),
+gates = [("REVIEW GATE","Plan review","Rounds 1 → 2 → 3, then the owner approves it"),
          ("REVIEW GATE","Build review","Rounds 1 → 2 → 3 again, on the build"),
          ("TEST GATE","Before any commit","Tests pass · regression-safety check recorded")]
 for i, (eyebrow, head, body) in enumerate(gates):
@@ -483,7 +483,7 @@ kicker(s, "In practice"); title(s, "A typical session, end to end")
 flow = [
     ("Session start","Agent reads /docs + tasks; one-line ack of what it loaded"),
     ("Open a task","tasks/T-NNN.md — acceptance criteria, branch off main"),
-    ("Plan → review","3-round review on the plan before a line of code"),
+    ("Plan → review","3-round plan review, then the owner approves it"),
     ("Build → review","Implement, then review the build; tests for every path"),
     ("Regression-safety","Diff vs contracts.md; update docs in the same PR"),
     ("Commit → PR","Task-ID enforced; state → completed in the work PR"),

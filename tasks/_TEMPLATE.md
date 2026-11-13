@@ -38,6 +38,8 @@ What this task delivers. Why now. Stakeholders. Link to source request (issue / 
 ## Activity log
 <!-- Append-only. One line per transition. -->
 - YYYY-MM-DD — proposed by <agent or human>
-- YYYY-MM-DD — moved to in-review (plan signed off by <agents>)
+- YYYY-MM-DD — moved to in-review (plan drafted)
+- YYYY-MM-DD — plan signed off by <agents>
+- YYYY-MM-DD — plan approved by <owner/DRI>: "<their exact words>" (<comment URL> | in session)   # tasks/README.md#plan-approval
 - YYYY-MM-DD — moved to in-progress on branch <name>
 - YYYY-MM-DD — completed in PR #<n>; review at <path>   # set state=completed in THIS pr, not a follow-up

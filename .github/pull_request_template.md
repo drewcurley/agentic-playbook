@@ -40,6 +40,7 @@ For trivial pull requests (typo / lockfile bump / etc., per AGENTS.md § 5), kee
 ## Human review
 
 - **Required reviewer(s):** @<dri> + at least one human approver per `CODEOWNERS`
+- **Plan approved by:** <copy the task's activity-log approval line> (`AGENTS.md` § 7 step 4b) — or "n/a (lightweight, § 5)"
 - **Tested locally?** yes / no — describe how
 - **Continuous Integration green?** yes / no
 - **Migrations included?** yes / no — if yes, link to rollback plan in `/docs/runbooks/`

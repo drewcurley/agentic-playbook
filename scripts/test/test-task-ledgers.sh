@@ -24,6 +24,10 @@
 #      in tasks/ are the project's own and are skipped).
 #   6. No adopter-facing file links into .starter/ (deleting it leaves no dead link).
 #   7. Check 1 still passes on a copy of the tree without .starter/.
+#   8. The plan-approval gate (starter T-026) is still written down: every anchor
+#      sentence in the table below is present (ignoring backticks, asterisks and
+#      runs of spaces), plus a few structural checks. Runs only when .starter/
+#      exists, so a fork that rewords its docs keeps a green CI.
 # Each check also runs against a fixture tree broken in exactly that way.
 #
 # Run:  sh scripts/test/test-task-ledgers.sh
@@ -381,6 +385,175 @@ out=$(REQUIRE_STARTER=0 check_tree "$tmp/fx")
 if printf '%s\n' "$out" | grep -q '^SKIP' && ! printf '%s\n' "$out" | grep -q '^FAIL'; then ok "no .starter/: checks 2-6 skip, visibly"
 else bad "no .starter/: checks 2-6 skip, visibly (got: $out)"; fi
 expect_fail "REQUIRE_STARTER=1 turns a missing .starter/ into a failure" ".starter/ is missing" "$(REQUIRE_STARTER=1 check_tree "$tmp/fx")"
+
+# --- 8) The plan-approval gate is written down (starter T-026) -------------------
+# file|anchor. "file@section" scopes the anchor to that "## section" (fence-aware).
+# Anchors are written without backticks or asterisks: both sides are normalized.
+anchors() {
+  cat <<'EOF'
+AGENTS.md|4b. Human gate — the owner/DRI approves the reviewed plan; record who and when in the task's activity log.
+AGENTS.md|The approver is the DRI for the area
+AGENTS.md|An agent never approves a plan
+AGENTS.md|Silence or a timeout is never a yes
+AGENTS.md|plan approved by <name>: "<their exact words>"
+AGENTS.md|tasks/README.md#plan-approval
+AGENTS.md|No code without a reviewed plan that the owner/DRI has approved (§ 7 step 4b).
+AGENTS.md|The record is written by the agent; the PR's human approver checks the quote or link.
+AGENTS.md|then the owner/DRI approves the plan before any code
+tasks/README.md|Approval counts only from
+tasks/README.md|("yes, but change X") is not approval
+tasks/README.md|Never ask for approval in the middle of the review
+tasks/README.md|approve this plan?
+tasks/README.md@Plan approval|A material change
+tasks/README.md|already in-progress
+tasks/README.md|approved by the owner/DRI; build happening
+tasks/README.md|including waiting for the owner/DRI's approval
+tasks/README.md|The approver is the DRI for the area
+tasks/README.md|An agent never approves a plan
+tasks/README.md|Silence or a timeout is never a yes
+tasks/README.md|Not approved yet. Here's what changed
+.claude/agents/review-coordinator.md|No task moves to in-progress without the owner/DRI's recorded plan approval
+.claude/agents/review-coordinator.md|A subagent never records an approval relayed to it
+.claude/agents/review-coordinator.md|tasks/README.md#plan-approval
+.claude/agents/analyst.md|approved by the owner/DRI before code
+tasks/_TEMPLATE.md|plan approved by <owner/DRI>: "<their exact words>"
+README.md|and the owner approves it
+README.md|No code without a reviewed plan that the owner/DRI has approved
+.github/pull_request_template.md|Plan approved by:
+ADOPTING.md|solo repos now get a human gate
+EOF
+}
+# norm: drop backticks and asterisks, tabs to spaces, squeeze spaces.
+norm() { tr -d '`*' | tr '\t' ' ' | tr -s ' '; }
+# section <file> <title>: the lines of "## <title>" up to the next # or ## heading,
+# reading fences so a heading inside one doesn't end the section.
+section() {
+  awk -v t="## $2" '/^[ \t]*(```|~~~)/ { fence = !fence }
+    !fence && /^##? / { if (on) exit; if ($0 == t) on = 1 }
+    on' "$1"
+}
+gate_task='starter T-026'   # the task that added this gate; its own log must show the approval
+# first_line <text> <fixed string>: line number of its first occurrence, or nothing.
+first_line() { printf '%s\n' "$1" | grep -nF -- "$2" | head -n 1 | cut -d: -f1; }
+APPROVED_RE='- (YYYY-MM-DD|[0-9]{4}-[0-9]{2}-[0-9]{2}) — plan approved by [^:]+: "[^"]+" \('
+# check_anchors <root>: print "FAIL 8: ..." / "SKIP 8: ..." lines; nothing else.
+check_anchors() {
+  t=$1
+  if [ ! -d "$t/.starter" ]; then
+    if [ "${REQUIRE_STARTER:-0}" = 1 ]; then echo "FAIL 8: .starter/ is missing (REQUIRE_STARTER=1)"
+    else echo "SKIP 8: no .starter/ (anchors are the starter's own wording)"; fi
+    echo "DONE 8"; return 0
+  fi
+  anchors | while IFS='|' read -r key a; do
+    f=${key%%@*}; sec=''; case "$key" in *@*) sec=${key#*@} ;; esac
+    if [ ! -f "$t/$f" ]; then echo "FAIL 8: $f is missing"; continue; fi
+    if [ -n "$sec" ]; then body=$(section "$t/$f" "$sec" | norm); else body=$(norm < "$t/$f"); fi
+    printf '%s\n' "$body" | grep -qF -- "$a" || printf 'FAIL 8: %s lacks "%s"\n' "$key" "$a"
+  done
+  # AGENTS § 7 step 4 no longer moves the task to in-progress (4b does).
+  s4=$(awk '/^4\. Run the agent review on the/' "$t/AGENTS.md")
+  if [ -z "$s4" ]; then echo "FAIL 8: AGENTS.md has no step 4 (agent plan review)"
+  else case "$s4" in *in-progress*) echo "FAIL 8: AGENTS.md step 4 still moves the task to in-progress" ;; esac; fi
+  heading_slugs "$t/tasks/README.md" | grep -qxF plan-approval || echo "FAIL 8: tasks/README.md has no '## Plan approval' heading"
+  pa=$(section "$t/tasks/README.md" "Plan approval" | norm)
+  for l in "Builds:" "Won't build:" "Added beyond your request:" "Main risk / tradeoff:" "Review settled:" "Your call:" "plan rejected by"; do
+    printf '%s\n' "$pa" | grep -qF -- "$l" || printf 'FAIL 8: Plan approval section lacks "%s"\n' "$l"
+  done
+  printf '%s\n' "$pa" | grep -qE -- "$APPROVED_RE" || echo "FAIL 8: Plan approval section has no well-formed approved line"
+  tpl=$(norm < "$t/tasks/_TEMPLATE.md")
+  printf '%s\n' "$tpl" | grep -qE -- "$APPROVED_RE" || echo "FAIL 8: tasks/_TEMPLATE.md has no well-formed approved line"
+  rc_=0; printf '%s\n' "$tpl" | grep -qF 'moved to in-review (plan signed off by' || rc_=$?
+  case "$rc_" in 0) echo "FAIL 8: tasks/_TEMPLATE.md still has the old in-review line" ;; 1) ;; *) echo "FAIL 8: grep error ($rc_) reading tasks/_TEMPLATE.md" ;; esac
+  ls_=$(first_line "$tpl" 'plan signed off by'); la_=$(first_line "$tpl" 'plan approved by'); lp_=$(first_line "$tpl" 'moved to in-progress')
+  { [ -n "$ls_" ] && [ -n "$la_" ] && [ -n "$lp_" ] && [ "$ls_" -lt "$la_" ] && [ "$la_" -lt "$lp_" ]; } \
+    || echo "FAIL 8: tasks/_TEMPLATE.md log must read signed off, then approved, then in-progress"
+  t26="$t/.starter/tasks/${gate_task#starter }.md"
+  if [ -f "$t26" ]; then
+    log=$(section "$t26" "Activity log" | norm)
+    la_=$(printf '%s\n' "$log" | grep -nE -- "$APPROVED_RE" | head -n 1 | cut -d: -f1)
+    lp_=$(first_line "$log" 'moved to in-progress')
+    if [ -z "$la_" ]; then echo "FAIL 8: $gate_task has no well-formed approved line in its activity log"
+    elif [ -z "$lp_" ] || [ "$lp_" -lt "$la_" ]; then echo "FAIL 8: $gate_task moves to in-progress before the approval"; fi
+  fi
+  echo "DONE 8"
+  return 0
+}
+
+# report8 <description> <output>: like report, but a run that stopped early (no DONE 8) fails.
+report8() {
+  if printf '%s\n' "$2" | grep -qx 'DONE 8'; then report "$1" "$2"
+  else bad "$1 (check 8 stopped early: no DONE 8)"; fi
+}
+report8 "check 8: the plan-approval gate is written down ($root)" "$(check_anchors "$root")"
+
+# Fixtures for check 8: a copy of just the files it reads.
+ax() {
+  rm -rf "$tmp/ax"; mkdir -p "$tmp/ax/.starter/tasks" "$tmp/ax/tasks" "$tmp/ax/.github" "$tmp/ax/.claude/agents"
+  for f in AGENTS.md README.md ADOPTING.md tasks/README.md tasks/_TEMPLATE.md .github/pull_request_template.md \
+           .claude/agents/analyst.md .claude/agents/review-coordinator.md ".starter/tasks/${gate_task#starter }.md"; do
+    [ -f "$root/$f" ] && cp "$root/$f" "$tmp/ax/$f"
+  done
+  return 0
+}
+# swap <file> <old> <new>: replace every <old> with <new>, as data (awk index, no sed;
+# starter T-014). The file is normalized first, so anchors match their written form.
+swap() {
+  norm < "$1" | awk -v o="$2" -v n="$3" '{ out = ""; l = $0
+      while ((i = index(l, o)) > 0) { out = out substr(l, 1, i - 1) n; l = substr(l, i + length(o)) }
+      print out l }' > "$1.x" && mv "$1.x" "$1"
+}
+ax; report8 "check 8: fixture copy passes" "$(check_anchors "$tmp/ax")"
+ax; awk '{ i = index($0, "An agent never approves a plan"); if (i) $0 = substr($0, 1, i - 1) "**An agent** `never`  approves a plan" substr($0, i + 30); print }' \
+      "$tmp/ax/AGENTS.md" > "$tmp/ax/x" && mv "$tmp/ax/x" "$tmp/ax/AGENTS.md"
+report8 "check 8: added bold, backticks and spaces still pass" "$(check_anchors "$tmp/ax")"
+# expect_fail_f: expect_fail with a fixed-string needle (anchors hold regex characters).
+expect_fail_f() {
+  if printf '%s\n' "$3" | grep '^FAIL' | grep -qF -- "$2"; then ok "$1"
+  else bad "$1 (wanted FAIL containing '$2'; got: $3)"; fi
+}
+# Not a pipeline: ok/bad must update this shell's counters, not a subshell's.
+anchors > "$tmp/anchors"
+n_rm=0
+while IFS='|' read -r key a; do
+  ax; f=${key%%@*}; swap "$tmp/ax/$f" "$a" ""
+  expect_fail_f "check 8: removing \"$a\" from $key is caught" "8: $key lacks \"$a\"" "$(check_anchors "$tmp/ax")"
+  n_rm=$((n_rm + 1))
+done < "$tmp/anchors"
+n_anchors=$(wc -l < "$tmp/anchors" | tr -d ' ')
+if [ "$n_rm" -eq "$n_anchors" ] && [ "$n_rm" -gt 0 ]; then ok "check 8: every anchor ($n_anchors) has a removal fixture that ran"
+else bad "check 8: every anchor has a removal fixture that ran ($n_rm of $n_anchors)"; fi
+# (swap normalizes the file, which drops backtick fences; section()'s fence handling
+# is exercised by the real tree, whose Plan approval section holds fenced blocks.)
+ax; swap "$tmp/ax/tasks/README.md" "A material change" ""; printf '\n## Other\nA material change\n' >> "$tmp/ax/tasks/README.md"
+expect_fail_f "check 8: a section-scoped anchor outside its section is caught" "8: tasks/README.md@Plan approval lacks" "$(check_anchors "$tmp/ax")"
+ax; awk '/plan approved by/ && !h { h = $0; next } { print } /moved to in-progress/ && h { print h; h = "" }' "$tmp/ax/tasks/_TEMPLATE.md" > "$tmp/ax/x" && mv "$tmp/ax/x" "$tmp/ax/tasks/_TEMPLATE.md"
+expect_fail_f "check 8: a template approved line after in-progress is caught" "signed off, then approved" "$(check_anchors "$tmp/ax")"
+ax; swap "$tmp/ax/AGENTS.md" "4. Run the agent review on the plan" "4. Run the agent review on the plan (then in-progress)"
+expect_fail "check 8: step 4 moving the task to in-progress is caught" "step 4 still moves" "$(check_anchors "$tmp/ax")"
+ax; swap "$tmp/ax/tasks/README.md" "## Plan approval" "## Plan approvals"
+expect_fail "check 8: a renamed Plan approval heading is caught" "no '## Plan approval' heading" "$(check_anchors "$tmp/ax")"
+ax; swap "$tmp/ax/tasks/README.md" "Review settled:" "Review notes:"
+expect_fail "check 8: a missing template label is caught" 'lacks "Review settled:"' "$(check_anchors "$tmp/ax")"
+ax; swap "$tmp/ax/tasks/_TEMPLATE.md" "plan signed off by" "moved to in-review (plan signed off by"
+expect_fail "check 8: the old template in-review line is caught" "old in-review line" "$(check_anchors "$tmp/ax")"
+ax; swap "$tmp/ax/tasks/_TEMPLATE.md" "moved to in-progress" "moved on"
+expect_fail "check 8: a template log out of order is caught" "signed off, then approved" "$(check_anchors "$tmp/ax")"
+ax; swap "$tmp/ax/tasks/_TEMPLATE.md" '"<their exact words>"' "<their words>"
+expect_fail "check 8: a template approved line without a quote is caught" "_TEMPLATE.md has no well-formed" "$(check_anchors "$tmp/ax")"
+gt="$tmp/ax/.starter/tasks/${gate_task#starter }.md"
+if [ -f "$root/.starter/tasks/${gate_task#starter }.md" ]; then
+  ax; swap "$gt" "plan approved by drewcurley" "plan OK by drewcurley"
+  expect_fail "check 8: $gate_task without its approval line is caught" "$gate_task has no well-formed" "$(check_anchors "$tmp/ax")"
+  ax; awk '/moved to in-progress/ { next } /plan approved by drewcurley/ { print "- 2026-11-12 — moved to in-progress on branch x" } { print }' "$gt" > "$tmp/ax/x" && mv "$tmp/ax/x" "$gt"
+  expect_fail "check 8: $gate_task in progress before approval is caught" "before the approval" "$(check_anchors "$tmp/ax")"
+fi
+out=$(report8 "x" "FAIL-free but truncated" 2>&1); case "$out" in *"stopped early"*) ok "check 8: a run with no DONE 8 line fails" ;; *) bad "check 8: a run with no DONE 8 line fails (got: $out)" ;; esac
+ax; rm -rf "$tmp/ax/.starter"
+expect_fail "check 8: REQUIRE_STARTER=1 turns a missing .starter/ into a failure" "8: .starter/ is missing" "$(REQUIRE_STARTER=1 check_anchors "$tmp/ax")"
+ax; rm -rf "$tmp/ax/.starter"; swap "$tmp/ax/README.md" "and the owner approves it" "and done"
+out=$(check_anchors "$tmp/ax")
+if printf '%s\n' "$out" | grep -q '^SKIP 8' && ! printf '%s\n' "$out" | grep -q '^FAIL'; then ok "no .starter/: check 8 skips, visibly, even with reworded docs"
+else bad "no .starter/: check 8 skips, visibly, even with reworded docs (got: $out)"; fi
 
 echo
 echo "Results: $pass passed, $fail failed"
