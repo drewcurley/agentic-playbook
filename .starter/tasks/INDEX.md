@@ -14,7 +14,6 @@
 | [T-009.3](./T-009.3.md) | AC IDs traced to passing tests | sdet | — | in-review | chore/sdd-tier1-plan | — |
 | [T-009.4](./T-009.4.md) | Review evidence bound to the diff | review-coordinator | — | in-review | chore/sdd-tier1-plan | — |
 | [T-009.5](./T-009.5.md) | Independent agent review in CI | architect | — | in-review | chore/sdd-tier1-plan | — |
-| [T-024](./T-024.md) | Stop CI and the hooks echoing PR-controlled text, and scan every added line | architect | — | in-review | chore/t-024-ci-echo-hardening | — |
 
 ## Backlog
 
@@ -45,6 +44,7 @@
 | [T-021](./T-021.md) | Fix what the first real Azure DevOps runs found | devops | — | chore/t-021-azure-verified | #17 | .starter/tasks/T-021.md#review-artifact |
 | [T-022](./T-022.md) | GitHub Actions on by default, Azure DevOps supported | devops | — | chore/t-022-actions-first-class | #18 | .starter/tasks/T-022.md#review-artifact |
 | [T-026](./T-026.md) | Human gate — the owner approves the reviewed plan before any build | review-coordinator | — | chore/t-026-owner-plan-approval | #19 | .starter/tasks/T-026.md#review-artifact |
+| [T-024](./T-024.md) | Stop CI and the hooks echoing PR-controlled text, and scan every added line | architect | — | chore/t-024-ci-echo-hardening | #20 | .starter/tasks/T-024.md#review-artifact |
 
 ## Cancelled / Superseded
 
