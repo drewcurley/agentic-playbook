@@ -11,7 +11,9 @@
 # safe-echo block is byte-identical in scripts/ci-checks.sh and .githooks/pre-commit;
 # neither prints a raw file name or subject; every se_safe call checks its status; the
 # scan decisions read content only (cut -f2-); every git diff/show pins its output
-# shape; and both CI files run the two scan suites under bash as well.
+# shape; and both CI files run the two scan suites under bash as well. Starter T-023
+# adds: the task-ready block is byte-identical in both scripts, and both CI files run
+# its suite.
 #
 # Run:  sh scripts/test/test-ci-wiring.sh
 #       CI_WIRING_ROOT=<dir> sh scripts/test/test-ci-wiring.sh   (check another tree)
@@ -195,6 +197,28 @@ check_block() {
   cmp -s "$tmp/blk1" "$tmp/blk2" || echo "FAIL: the safe-echo blocks in scripts/ci-checks.sh and .githooks/pre-commit differ"
 }
 
+# check_tr_block <root>: one task-ready block per script, byte-identical in both
+# (starter T-023), and the block's own suite is a step in both CI files.
+check_tr_block() {
+  for s in $se_scripts; do
+    [ -f "$1/$s" ] || { echo "FAIL: $s is missing"; return 0; }
+    nb=$(grep -c '^# BEGIN task-ready' "$1/$s"); ne=$(grep -c '^# END task-ready$' "$1/$s")
+    [ "$nb" -eq 1 ] || echo "FAIL: $s has $nb BEGIN task-ready markers, not 1"
+    [ "$ne" -eq 1 ] || echo "FAIL: $s has $ne END task-ready markers, not 1"
+  done
+  sed -n '/^# BEGIN task-ready/,/^# END task-ready$/p' "$1/scripts/ci-checks.sh" > "$tmp/trb1"
+  sed -n '/^# BEGIN task-ready/,/^# END task-ready$/p' "$1/.githooks/pre-commit" > "$tmp/trb2"
+  [ -s "$tmp/trb1" ] || echo "FAIL: scripts/ci-checks.sh has no task-ready block"
+  cmp -s "$tmp/trb1" "$tmp/trb2" || echo "FAIL: the task-ready blocks in scripts/ci-checks.sh and .githooks/pre-commit differ"
+}
+check_tr_suite() {
+  for c in azure-pipelines.yml $(gh_workflow "$1"); do
+    [ -f "$1/$c" ] || { echo "FAIL: $c is missing"; continue; }
+    grep -qE '^[[:space:]]*(- )?(script|run): sh scripts/test/test-task-ready\.sh$' "$1/$c" \
+      || echo "FAIL: $c has no step for scripts/test/test-task-ready.sh"
+  done
+}
+
 # check_unsanitized <root>: no message or printf expands a raw name or subject. Comment
 # lines are skipped; $sf, $f_diff and the like don't match.
 check_unsanitized() {
@@ -327,6 +351,8 @@ report "every git diff/show pins its output shape ($root)" "$(check_diff_flags "
 report "both CI files run the scan suites under bash ($root)" "$(check_bash_steps "$root")"
 report "every git call discards git's own stderr ($root)" "$(check_git_quiet "$root")"
 report "se_where only gets the sanitized name ($root)" "$(check_se_where "$root")"
+report "the task-ready block is identical in both scripts ($root)" "$(check_tr_block "$root")"
+report "both CI files run the task-ready suite ($root)" "$(check_tr_suite "$root")"
 
 # --- Fixtures -------------------------------------------------------------------
 fx() {
@@ -532,6 +558,24 @@ fxs
 # shellcheck disable=SC2016  # the $... is the fixture's sed text
 edit_fx "$pc" 's/| se_where "$sf"$/| se_where "$f"/'
 expect_fail "se_where handed a raw name is caught" ".githooks/pre-commit passes se_where an unsanitized path" "$(check_se_where "$tmp/fxs")"
+
+# task-ready fixtures (starter T-023): a drift, a second or missing marker, a missing step.
+fxs; report "fixture: this tree's scripts pass the task-ready block check" "$(check_tr_block "$tmp/fxs")"
+fxs; edit_fx "$pc" 's/1 problem/one problem/'
+expect_fail "a drifted task-ready block is caught" "task-ready blocks in scripts/ci-checks.sh and .githooks/pre-commit differ" "$(check_tr_block "$tmp/fxs")"
+fxs; printf '# BEGIN task-ready again\n' >> "$pc"
+expect_fail "a second task-ready BEGIN marker is caught" ".githooks/pre-commit has 2 BEGIN task-ready markers" "$(check_tr_block "$tmp/fxs")"
+fxs; edit_fx "$ci" '/^# END task-ready$/d'
+expect_fail "a missing task-ready END marker is caught" "scripts/ci-checks.sh has 0 END task-ready markers" "$(check_tr_block "$tmp/fxs")"
+fxs; edit_fx "$ci" '/^# BEGIN task-ready/d'
+expect_fail "a missing task-ready BEGIN marker is caught" "scripts/ci-checks.sh has 0 BEGIN task-ready markers" "$(check_tr_block "$tmp/fxs")"
+rm -rf "$tmp/fxt"; mkdir -p "$tmp/fxt/.github/workflows"
+cp "$root/azure-pipelines.yml" "$tmp/fxt/azure-pipelines.yml"; cp "$root/.github/workflows/checks.yml" "$tmp/fxt/.github/workflows/checks.yml"
+report "fixture: copies of this tree's CI files run the task-ready suite" "$(check_tr_suite "$tmp/fxt")"
+edit_fx "$tmp/fxt/azure-pipelines.yml" 's|^\(  *\)- script: sh scripts/test/test-task-ready.sh$|\1# - script: sh scripts/test/test-task-ready.sh|'
+expect_fail "a commented-out task-ready step is caught" "azure-pipelines.yml has no step for scripts/test/test-task-ready.sh" "$(check_tr_suite "$tmp/fxt")"
+edit_fx "$tmp/fxt/.github/workflows/checks.yml" '/test-task-ready.sh/d'
+expect_fail "a workflow without the task-ready step is caught" ".github/workflows/checks.yml has no step for scripts/test/test-task-ready.sh" "$(check_tr_suite "$tmp/fxt")"
 
 # bash-step fixtures: an Azure file and a workflow, each with dash and bash runs.
 fxb() {

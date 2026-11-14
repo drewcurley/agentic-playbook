@@ -19,11 +19,15 @@
 #      this test's business. Fenced code blocks are skipped.
 #   4. No gate file (.githooks/* but *.md, scripts/*.sh, CI files, .placeholder-allow) mentions
 #      .starter/ — it is history, never configuration — and no .placeholder-allow
-#      glob matches a path under .starter/.
+#      glob matches a path under .starter/. The one exception is the task-ready block
+#      (starter T-023), which checks .starter/tasks/ files as task files.
 #   5. Shipped files cite starter task IDs as "starter T-0NN" (IDs that also exist
 #      in tasks/ are the project's own and are skipped).
 #   6. No adopter-facing file links into .starter/ (deleting it leaves no dead link).
 #   7. Check 1 still passes on a copy of the tree without .starter/.
+#   9. The definition of ready (starter T-023) is written down, the template has its
+#      sections in order, and every task file in both ledgers passes the task-ready
+#      block (the files checked are exactly the INDEX rows).
 #   8. The plan-approval gate (starter T-026) is still written down: every anchor
 #      sentence in the table below is present (ignoring backticks, asterisks and
 #      runs of spaces), plus a few structural checks. Runs only when .starter/
@@ -193,7 +197,15 @@ check_tree() {
   done
   # 4) no gate file mentions .starter/
   gate_files "$t" | while IFS= read -r g; do
-    grep -q '\.starter' "$t/$g" && echo "FAIL 4: gate file $g mentions .starter/ (history is never configuration)"
+    # The task-ready block (starter T-023) names .starter/tasks/ to check those files'
+    # format, as data; it reads nothing there as configuration. Only it is exempt.
+    # Only in the two scripts that carry it, only with exactly one BEGIN and one END,
+    # and only on its .starter/tasks/ pattern lines. A block with no END exempts nothing.
+    case "$g" in scripts/ci-checks.sh|.githooks/pre-commit) ex=1 ;; *) ex=0 ;; esac
+    awk -v ex="$ex" '/^# BEGIN task-ready/ { nb++; b = 1; inb = 0 } /^# END task-ready$/ { ne++; b = 0; inb = 0; next }
+         /\.starter/ { if (ex && b && $0 ~ /^    [.]starter\/tasks\/T-[*][.]md[)] /) inb = 1; else hit = 1 }
+         END { exit !(hit || inb || (ex && (nb > 1 || ne > 1))) }' "$t/$g" \
+      && echo "FAIL 4: gate file $g mentions .starter/ (history is never configuration)"
   done
   if [ -f "$t/.placeholder-allow" ]; then   # a glob can match .starter/ without naming it
     samples=$( (cd "$t" && find .starter -type f)
@@ -338,6 +350,23 @@ fx; printf 'Read [this](.starter/README.md).\n' > "$tmp/fx/tasks/x#y.md"
 if [ -e "$tmp/pwned" ]; then bad "a filename was executed as a sed command"; else ok "no filename was executed as a sed command"; fi
 fx; printf '# reads .starter/tasks\n' >> "$tmp/fx/.githooks/pre-commit"
                                                    expect_fail "check 4: a gate file mentioning .starter/ is caught" "gate file" "$(check_tree "$tmp/fx")"
+tr_line='    .starter/tasks/T-*.md) tr_nm=x ;;'
+# tr_gate <file> <line>...: write a gate file made of these lines.
+tr_gate() { g_=$1; shift; printf '%s\n' "$@" > "$tmp/fx/$g_"; }
+fx; tr_gate scripts/ci-checks.sh '# BEGIN task-ready' "$tr_line" '# END task-ready'
+report "check 4: the task-ready block's .starter/tasks/ pattern is allowed in ci-checks.sh" "$(check_tree "$tmp/fx")"
+fx; tr_gate .githooks/pre-commit '# BEGIN task-ready' "$tr_line" '# END task-ready'
+report "check 4: ...and in the pre-commit hook" "$(check_tree "$tmp/fx")"
+fx; tr_gate scripts/x.sh '# BEGIN task-ready' "$tr_line" '# END task-ready'
+                                                   expect_fail "check 4: ...but not in another script" "gate file scripts/x.sh" "$(check_tree "$tmp/fx")"
+fx; tr_gate scripts/ci-checks.sh '# BEGIN task-ready' '# reads .starter/' '# END task-ready'
+                                                   expect_fail "check 4: ...and only on its pattern line" "gate file scripts/ci-checks.sh" "$(check_tree "$tmp/fx")"
+fx; tr_gate scripts/ci-checks.sh '# BEGIN task-ready' '# END task-ready' '# reads .starter/'
+                                                   expect_fail "check 4: ...not after its END marker" "gate file scripts/ci-checks.sh" "$(check_tree "$tmp/fx")"
+fx; tr_gate scripts/ci-checks.sh '# BEGIN task-ready' "$tr_line"
+                                                   expect_fail "check 4: a block with no END marker exempts nothing" "gate file scripts/ci-checks.sh" "$(check_tree "$tmp/fx")"
+fx; tr_gate scripts/ci-checks.sh '# BEGIN task-ready' "$tr_line" '# END task-ready' '# BEGIN task-ready' "$tr_line" '# END task-ready'
+                                                   expect_fail "check 4: two blocks exempt nothing" "gate file scripts/ci-checks.sh" "$(check_tree "$tmp/fx")"
 fx; printf '#!/bin/sh\n# reads .starter/tasks\n' > "$tmp/fx/.githooks/post-merge"
                                                    expect_fail "check 4: a hook added later is covered too" "gate file .githooks/post-merge" "$(check_tree "$tmp/fx")"
 fx; printf 'The .starter/ folder is history.\n' > "$tmp/fx/.githooks/README.md"
@@ -554,6 +583,132 @@ ax; rm -rf "$tmp/ax/.starter"; swap "$tmp/ax/README.md" "and the owner approves 
 out=$(check_anchors "$tmp/ax")
 if printf '%s\n' "$out" | grep -q '^SKIP 8' && ! printf '%s\n' "$out" | grep -q '^FAIL'; then ok "no .starter/: check 8 skips, visibly, even with reworded docs"
 else bad "no .starter/: check 8 skips, visibly, even with reworded docs (got: $out)"; fi
+
+# --- 9) The definition of ready (starter T-023) -------------------------------------
+# The docs say it (anchors, as in check 8), the template has its shape, and every task
+# file in the tree passes the task-ready block, extracted from scripts/ci-checks.sh.
+ready_anchors() {
+  cat <<'EOF2'
+tasks/README.md@Definition of ready|What CI checks, and what review still owns
+tasks/README.md@Definition of ready|whether the content is any good
+tasks/README.md@Definition of ready|who answered
+tasks/README.md@Definition of ready|whether a Deferred to T-NNN task exists
+tasks/README.md@Definition of ready|An agent or an engineer, never the requester
+tasks/README.md@Definition of ready|Answer (<date>, <who>, <source>): <answer>
+tasks/README.md@Definition of ready|Deferred to T-<n>: <why>
+tasks/README.md@Definition of ready|Versions are only ever added
+tasks/README.md@Definition of ready|the check keeps validating version-1 files by version 1's rules
+tasks/README.md@Definition of ready|moving a task to version 2 is an explicit edit
+tasks/README.md@Definition of ready|To opt an old task in, add spec_format: 1 and the six sections; the check runs on its next edit.
+tasks/README.md@Definition of ready|While a task waits for answers before plan review it stays proposed
+tasks/README.md@Definition of ready|moves the task to blocked
+tasks/README.md@States|the spec step
+tasks/README.md@States|Requires ready.
+tasks/README.md@When you start work|Only once the task is ready, set state: in-review
+.claude/agents/analyst.md@Spec pass|Read the request and /docs/, especially contracts.md
+.claude/agents/analyst.md@Spec pass|Reply in a comment, starting each answer with its number, like Q1: yes. Write as much as you need. You don't need to edit any file.
+.claude/agents/analyst.md@Spec pass|Never answer it yourself.
+.claude/agents/analyst.md@Spec pass|Move the task to in-review.
+.claude/agents/analyst.md@Spec pass|A question that comes up after review has started moves the task to blocked
+.claude/agents/analyst.md@Spec pass|Question bank
+.claude/agents/analyst.md|No task moves to in-review with an open question, and no agent answers its own question.
+.claude/agents/review-coordinator.md|a task that isn't ready
+AGENTS.md|Open the task file and spec it
+AGENTS.md|tasks/README.md#definition-of-ready
+AGENTS.md|only once the task is ready
+AGENTS.md|No plan review on a task that isn't ready.
+README.md|specs it until it is ready
+.githooks/README.md|task-ready
+ADOPTING.md|spec_format: 1
+ADOPTING.md|The sync PR is judged by your old gate. The check starts on the next PR.
+ADOPTING.md|Rebase any open PRs that add tasks from the old template, and add spec_format: 1. A task that is already in-review also needs the six sections.
+EOF2
+}
+ready_task='starter T-023'   # the task that added the check; it must carry the marker
+t23=".starter/tasks/${ready_task#starter }.md"
+tpl_order='Description|Users and stakeholders|Acceptance criteria|Non-functional requirements|Assumptions|Open questions|Out of scope|Plan|Subtasks|Risks / dependencies|Notes|Activity log'
+# check_ready <root>: print "FAIL 9: ..." lines, then "DONE 9".
+check_ready() {
+  t=$1
+  ready_anchors | while IFS='|' read -r key a; do
+    f=${key%%@*}; sec=''; case "$key" in *@*) sec=${key#*@} ;; esac
+    if [ ! -f "$t/$f" ]; then echo "FAIL 9: $f is missing"; continue; fi
+    if [ -n "$sec" ]; then body=$(section "$t/$f" "$sec" | norm); else body=$(norm < "$t/$f"); fi
+    printf '%s\n' "$body" | grep -qF -- "$a" || printf 'FAIL 9: %s lacks "%s"\n' "$key" "$a"
+  done
+  tp="$t/tasks/_TEMPLATE.md"
+  got=$(awk '/^[ \t]*(```|~~~)/ { fence = !fence } !fence && /^## / { sub(/^## /, ""); printf "%s%s", sep, $0; sep = "|" }' "$tp")
+  [ "$got" = "$tpl_order" ] || echo "FAIL 9: tasks/_TEMPLATE.md sections are '$got', not '$tpl_order'"
+  grep -qx 'spec_format: 1 *# .*tasks/README.md#definition-of-ready.*' "$tp" || echo "FAIL 9: tasks/_TEMPLATE.md lacks 'spec_format: 1' with a comment pointing at tasks/README.md#definition-of-ready"
+  nfr=$(section "$tp" "Non-functional requirements" | tr '[:upper:]' '[:lower:]')
+  for c in performance 'security and privacy' accessibility reliability 'data and compliance' 'name any regulation' 'one line is fine'; do
+    printf '%s\n' "$nfr" | grep -qF -- "$c" || echo "FAIL 9: tasks/_TEMPLATE.md's Non-functional guidance lacks '$c'"
+  done
+  for s in 'Users and stakeholders' 'Assumptions' 'Open questions'; do
+    # shellcheck disable=SC2016  # a markdown code span
+    section "$tp" "$s" | grep -qF -- '`None.` is fine' || echo "FAIL 9: tasks/_TEMPLATE.md's $s guidance lacks '\`None.\` is fine'"
+  done
+  section "$tp" "Acceptance criteria" | grep -qF 'Edge and error cases are criteria of their own' || echo "FAIL 9: tasks/_TEMPLATE.md's criteria guidance lacks the edge-case line"
+  section "$tp" "Plan" | grep -qF 'Written once the spec is ready, before plan review' || echo "FAIL 9: tasks/_TEMPLATE.md's Plan guidance lacks its wording"
+  grep -qF -- '— moved to in-review once ready' "$tp" || echo "FAIL 9: tasks/_TEMPLATE.md's activity log doesn't move to in-review once ready"
+  # The whole ledger: every task file passes the block, as an added file in root mode.
+  blk="$tmp/ready-lib.sh"
+  sed -n '/^# BEGIN safe-echo/,/^# END safe-echo$/p;/^# BEGIN task-ready/,/^# END task-ready$/p' "$t/scripts/ci-checks.sh" > "$blk" 2>/dev/null
+  grep -q '^tr_check() {' "$blk" || { echo "FAIL 9: scripts/ci-checks.sh has no task-ready block"; echo "DONE 9"; return 0; }
+  nchk=0
+  for led in tasks .starter/tasks; do   # each ledger against its own INDEX, both ways
+    [ -d "$t/$led" ] || continue
+    checked=''
+    for p in "$t/$led"/T-*.md; do
+      [ -f "$p" ] || continue
+      p=${p#"$t/"}
+      # shellcheck disable=SC2016,SC2094  # the child shell's $1; the file is only read
+      o=$( cd "$t" && sh -c '. "$1"; tr_check "$2" "$(tr_need A "$2" 1)" - 100644' sh "$blk" "$p" < "$p" ); r=$?
+      [ "$r" -eq 0 ] || { echo "FAIL 9: $p is not ready (rc=$r):"; printf '%s\n' "$o" | sed 's/^/FAIL 9:   /'; }
+      id=${p##*/}; checked="$checked
+${id%.md}"; nchk=$((nchk + 1))
+    done
+    rows=$(sed -n 's/^| \[\(T-[0-9.]*\)\](.*/\1/p' "$t/$led/INDEX.md" 2>/dev/null)
+    a=$(printf '%s\n' "$checked" | grep . | sort); b=$(printf '%s\n' "$rows" | grep . | sort)
+    [ "$a" = "$b" ] || echo "FAIL 9: $led: the files checked are not its INDEX rows: $(printf '%s\n%s\n' "$a" "$b" | sort | uniq -u | tr '\n' ' ')"
+  done
+  [ "$nchk" -gt 0 ] || echo "FAIL 9: no task file was checked"
+  if [ -f "$t/$t23" ]; then
+    # shellcheck disable=SC2016
+    ( cd "$t" && sh -c '. "$1"; tr_marker' sh "$blk" < "$t23" ) || echo "FAIL 9: $ready_task doesn't carry spec_format: 1"
+  fi
+  echo "DONE 9"
+  return 0
+}
+report9() {
+  if printf '%s\n' "$2" | grep -qx 'DONE 9'; then report "$1" "$2"
+  else bad "$1 (check 9 stopped early: no DONE 9)"; fi
+}
+report9 "check 9: the definition of ready is written down, and every task file is ready ($root)" "$(check_ready "$root")"
+nl=0; for p in "$root"/tasks/T-*.md "$root"/.starter/tasks/T-*.md; do [ -f "$p" ] && nl=$((nl + 1)); done
+echo "  (check 9 ran the task-ready block over $nl task files)"
+# Fixtures: a copy of the files check 9 reads, one break each.
+rx() {
+  rm -rf "$tmp/rx"; mkdir -p "$tmp/rx"
+  ( cd "$root" && tar cf - AGENTS.md README.md ADOPTING.md tasks .starter/tasks .claude/agents .githooks/README.md scripts/ci-checks.sh ) | ( cd "$tmp/rx" && tar xf - )
+}
+rx; report9 "check 9: fixture copy passes" "$(check_ready "$tmp/rx")"
+rx; swap "$tmp/rx/.claude/agents/analyst.md" "no agent answers its own question" "agents may answer"
+expect_fail "check 9: a dropped anchor is caught" 'analyst.md lacks "No task moves' "$(check_ready "$tmp/rx")"
+rx; awk '/^## Assumptions$/ { a = 1; next } a && /^## / { a = 0 } !a' "$tmp/rx/tasks/_TEMPLATE.md" > "$tmp/rx/x" && mv "$tmp/rx/x" "$tmp/rx/tasks/_TEMPLATE.md"
+expect_fail "check 9: a template section removed is caught" "_TEMPLATE.md sections are" "$(check_ready "$tmp/rx")"
+rx; swap "$tmp/rx/tasks/_TEMPLATE.md" "accessibility" "a11y"
+expect_fail "check 9: a missing non-functional category is caught" "lacks 'accessibility'" "$(check_ready "$tmp/rx")"
+rx; awk '{ print } $0 == "## Open questions" { print "- [ ] an open question" }' "$tmp/rx/$t23" > "$tmp/rx/x" && mv "$tmp/rx/x" "$tmp/rx/$t23"
+expect_fail "check 9: a task file that isn't ready is caught" "$t23 is not ready" "$(check_ready "$tmp/rx")"
+rx; printf -- '---\nid: T-999\nstate: proposed\n---\n' > "$tmp/rx/tasks/T-999.md"
+expect_fail "check 9: a task file with no INDEX row is caught" "tasks: the files checked are not its INDEX rows: T-999" "$(check_ready "$tmp/rx")"
+rx; printf '| [T-998](./T-998.md) | x |\n' >> "$tmp/rx/.starter/tasks/INDEX.md"
+expect_fail "check 9: an INDEX row with no file is caught" ".starter/tasks: the files checked are not its INDEX rows: T-998" "$(check_ready "$tmp/rx")"
+rx; sed '/^spec_format/d' "$tmp/rx/$t23" > "$tmp/rx/x" && mv "$tmp/rx/x" "$tmp/rx/$t23"
+expect_fail "check 9: $ready_task without its marker is caught" "doesn't carry spec_format: 1" "$(check_ready "$tmp/rx")"
+rx; sed '/^# BEGIN task-ready/,/^# END task-ready$/d' "$tmp/rx/scripts/ci-checks.sh" > "$tmp/rx/x" && mv "$tmp/rx/x" "$tmp/rx/scripts/ci-checks.sh"
+expect_fail "check 9: a gate without the block is caught" "has no task-ready block" "$(check_ready "$tmp/rx")"
 
 echo
 echo "Results: $pass passed, $fail failed"

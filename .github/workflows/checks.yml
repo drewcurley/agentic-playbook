@@ -95,6 +95,10 @@ jobs:
       - name: task ledger invariants
         run: sh scripts/test/test-task-ledgers.sh
 
+      # Every shell and awk on the runner; mawk (Ubuntu's awk) must be there (starter T-023).
+      - name: task-ready block fixture tests
+        run: sh scripts/test/test-task-ready.sh
+
       - name: every fixture suite runs in CI
         run: sh scripts/test/test-ci-wiring.sh
 

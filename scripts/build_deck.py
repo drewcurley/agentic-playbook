@@ -315,7 +315,7 @@ ROW_A_Y, ROW_A_H = 2.15, 1.20
 ROW_B_Y, ROW_B_H = 3.65, 1.85
 # rail first, so the four cards occlude it and only the gaps read as connector
 box(s, X0, ROW_A_Y + ROW_A_H / 2 - 0.03, 11.55, 0.06, fill=TEALDK, shape=MSO_SHAPE.RECTANGLE)
-stages = [("Plan","Task file · acceptance criteria · branch"),("Build","Implement the approved plan"),
+stages = [("Plan","Task file · spec ready · branch"),("Build","Implement the approved plan"),
           ("Verify","Automated tests, every path"),("Ship","Commit → pull request → merge")]
 for i, (name, body) in enumerate(stages):
     box(s, ax[i], ROW_A_Y, CW, ROW_A_H, fill=PANEL2)
@@ -482,7 +482,7 @@ s = slide()
 kicker(s, "In practice"); title(s, "A typical session, end to end")
 flow = [
     ("Session start","Agent reads /docs + tasks; one-line ack of what it loaded"),
-    ("Open a task","tasks/T-NNN.md — acceptance criteria, branch off main"),
+    ("Open a task","tasks/T-NNN.md — spec it until ready, branch off main"),
     ("Plan → review","3-round plan review, then the owner approves it"),
     ("Build → review","Implement, then review the build; tests for every path"),
     ("Regression-safety","Diff vs contracts.md; update docs in the same PR"),

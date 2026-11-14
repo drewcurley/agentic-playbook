@@ -123,6 +123,31 @@ untrusted, because CI logs act on commands written into them. After the sync:
   stderr, because a warning about a bad `.gitattributes` or `.gitmodules` quotes that
   file's text into the log. Each failure still prints its own message. To see git's
   warning, run the failing git command by hand.
+
+**Existing forks only: syncing the spec step (starter T-023).** The hook (check 6) and
+`scripts/ci-checks.sh` (check 5) now run the definition of ready
+(`tasks/README.md#definition-of-ready`) on every added or changed task file. After the sync:
+
+- **What's affected.** New `tasks/` files need `spec_format: 1` in their frontmatter; the
+  template carries it. Existing task files, and upstream's `.starter/tasks/`, are untouched
+  until they're edited.
+- **The opt-in path.** To give an old task the full check, add `spec_format: 1` and the six
+  spec sections (Users and stakeholders, Acceptance criteria, Non-functional requirements,
+  Assumptions, Open questions, Out of scope). The check runs on its next edit.
+- **What any edited task file is checked for, whatever its marker:**
+  - `SPEC_FRONTMATTER`: usually a BOM or CRLF line endings from an editor. Re-save the file
+    as UTF-8 with LF line endings and no BOM.
+  - `SPEC_UNCLOSED`: a `<!--` comment or a fence that never closes.
+  - `SPEC_BAD_NAME`: names like `tasks/T-042-notes.md` or anything under `tasks/T-042/`. Move
+    notes out of `tasks/`.
+  - `SPEC_NOT_A_FILE`: a task file committed as a symlink or submodule.
+  - `SPEC_OPEN_QUESTION` and `SPEC_UNANSWERED`: a fork that already writes its own
+    `## Open questions` sections with checkboxes hits these on the next edit of a task that
+    is in review or later.
+  - `SPEC_HEADING` on an Open questions near miss, such as `## Open Questions`.
+- **Renaming a legacy task** makes it a new file, so it needs the marker.
+- **When the check starts.** The sync PR is judged by your old gate. The check starts on the next PR. (It also runs once on the push that merges the sync, over the sync's own task files, which pass.)
+- **Open PRs.** Rebase any open PRs that add tasks from the old template, and add `spec_format: 1`. A task that is already in-review also needs the six sections.
 - **CI gains two steps** that rerun `test-ci-checks.sh` and `test-pre-commit.sh` with
   `SH: bash`. If you edited either suite, it must pass under bash too.
 - **Open branches.** PR builds take the gate from the target branch, so an open branch

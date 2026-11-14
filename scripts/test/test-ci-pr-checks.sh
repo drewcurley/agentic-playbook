@@ -116,6 +116,14 @@ make_fixture; printf '%s' "$tamper" > "$r/scripts/ci-checks.sh"; printf '%s\n' "
 pr_commit "tamper"; run_pr
 expect_fail "Possible secret detected" "PR that guts ci-checks.sh still has its secret caught"
 
+# 2b) A PR that deletes the task-ready block from its own ci-checks.sh still has its
+#     task file checked: the target's copy runs (starter T-023).
+make_fixture; sed '/^# BEGIN task-ready/,/^# END task-ready$/d' "$r/scripts/ci-checks.sh" > "$r/x" && mv "$r/x" "$r/scripts/ci-checks.sh"
+mkdir -p "$r/tasks"; printf -- '---\nid: T-1\nstate: in-review\n---\n## Open questions\n- [ ] open\n' > "$r/tasks/T-1.md"
+pr_commit "drop the task-ready block"; run_pr
+expect_fail "SPEC_MARKER_MISSING tasks/T-1.md" "PR that deletes the task-ready block still has its task file checked"
+if printf '%s' "$out" | grep -qF "SPEC_OPEN_QUESTION tasks/T-1.md: line 6"; then ok "...with every finding"; else bad "...with every finding (out: $out)"; fi
+
 # 3) The PR can't allowlist its own placeholder.
 make_fixture; printf '%s\n' "$placeholder" > "$r/notes.md"; printf 'notes.md\n' >> "$r/.placeholder-allow"
 pr_commit "self-allowlist"; run_pr

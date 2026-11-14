@@ -18,7 +18,7 @@ If you have 60 seconds, here's the whole thing:
 2. **9 specialist agents** review every non-trivial change in **3 rounds** (Analysis → Implementation → Verification), then the owner/DRI approves the plan before any code (§ 7 step 4b). See § 1, § 2.
 3. **Each agent has redlines** in `.claude/agents/*.md` — non-negotiable lines. Crossing one BLOCKs the merge unless an Architectural Decision Record is filed with leadership approval.
 4. **Major decisions** also run through **7 strategic lenses** (§ 4). Surface conflicts between lenses; don't paper over them.
-5. **Tasks live one-per-file** in `/tasks/T-NNN.md`. Update the task file in the same pull request that delivers the work.
+5. **Tasks live one-per-file** in `/tasks/T-NNN.md`, and each is **specced before its plan is reviewed**: no plan review until the task is ready ([`tasks/README.md#definition-of-ready`](./tasks/README.md#definition-of-ready)). Update the task file in the same pull request that delivers the work.
 6. **`/docs/*` requires unanimous 9-agent consensus** to edit. `/tasks/*` flows through the normal review cycle.
 7. **Human review still required** in addition to agent sign-off — see `CODEOWNERS` and § 7.
 8. **Lightweight path exists** for trivial pull requests (typo / lockfile bump). See § 5.
@@ -346,8 +346,8 @@ All work happens on feature branches. **No direct pushes to `main`.**
 - `refactor/<short-name>` — restructuring without behavior change
 
 **Flow:**
-1. **Open** (or update) the task file at [`tasks/T-NNN.md`](./tasks/). New tasks start as `proposed` — copy `_TEMPLATE.md` and pick the next free ID.
-2. Create branch from `main`. Update the task's **State → `in-review`** and fill in **Branch** in the frontmatter; append a line to the activity log.
+1. **Open the task file and spec it** at [`tasks/T-NNN.md`](./tasks/). New tasks start as `proposed` — copy `_TEMPLATE.md` and pick the next free ID. The Analyst's spec pass fills its spec sections and gets every open question answered by the requester or deferred: see [`tasks/README.md#definition-of-ready`](./tasks/README.md#definition-of-ready).
+2. Create branch from `main`. Update the task's **State → `in-review`** only once the task is ready, and fill in **Branch** in the frontmatter; append a line to the activity log.
 3. **Plan** the work — what changes, which files, what approach.
 4. Run the agent review on the **plan** — get every required agent's sign-off *before* writing code.
 
@@ -432,6 +432,7 @@ Record any intentional divergence from upstream as an Architectural Decision Rec
 
 > **Mechanically enforced vs. review-enforced.** Most gates below are enforced by the git hooks + CI mirror (`.githooks/`, `scripts/ci-checks.sh` run by `azure-pipelines.yml`) — a machine blocks them. A few — marked *(review-enforced)* — cannot be checked by a per-repo hook (e.g. anything cross-repo, since one repo's hook can't see a sibling). Those depend on the review cycle and human discipline. They are no less mandatory, but be honest that nothing mechanical catches them: the cost of separate repos instead of a monorepo.
 
+- No plan review on a task that isn't ready. See [`tasks/README.md#definition-of-ready`](./tasks/README.md#definition-of-ready): the mechanical part (open questions, the spec sections) is checked by the hooks and CI; whether the content is any good stays with review.
 - No code without a reviewed plan that the owner/DRI has approved (§ 7 step 4b). *(review-enforced)* The record is written by the agent; the PR's human approver checks the quote or link. In a solo repo with 0 required approvals, nothing checks it.
 - No commit without agent sign-off.
 - No merge without at least one human approver per `.github/CODEOWNERS`. **(Solo-repo exception:** GitHub forbids self-approval, so a one-person repo runs 0 required approvals — the PR + CI gates still apply. The human-approver gate activates the moment a second maintainer joins; see `ADOPTING.md` step 5.)

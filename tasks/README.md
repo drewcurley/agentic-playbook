@@ -26,8 +26,8 @@ tasks/
 
 | State | Meaning |
 |-------|---------|
-| `proposed` | Captured but not planned yet. Analyst hasn't drafted acceptance criteria. |
-| `in-review` | Plan exists; running through the review cycle for plan sign-off, including waiting for the owner/DRI's approval. |
+| `proposed` | Captured, and being specced: the spec step (the Analyst's spec pass) happens here, including waiting for the requester's answers. |
+| `in-review` | The task is [ready](#definition-of-ready) and a plan exists; running through the review cycle for plan sign-off, including waiting for the owner/DRI's approval. Requires ready. |
 | `in-progress` | Plan signed off by the agents and approved by the owner/DRI; build happening on a branch. |
 | `completed` | Merged to `main`, all sign-offs collected, tests green. |
 | `blocked` | Stuck on an external dependency or unresolved decision. Explain in Notes. |
@@ -36,9 +36,66 @@ tasks/
 ## When you start work
 
 1. Pick or create a task file. New tasks: copy `_TEMPLATE.md`, pick the next free ID.
-2. Set `state: in-review`, fill in `created`/`updated`, and append a line to the activity log.
+2. Spec it until it is [ready](#definition-of-ready), then write the Plan section. Only once the task is ready, set `state: in-review`, fill in `created`/`updated`, and append a line to the activity log.
 3. Run the plan-review cycle (`AGENTS.md` § 2).
 4. Ask the owner/DRI to approve the reviewed plan and record it ([Plan approval](#plan-approval)). Only then set `state: in-progress`.
+
+## Definition of ready
+
+A task is **ready** when someone other than its author could plan it without guessing: who it is for, what "done" means, which non-functional needs apply, what is assumed, and what is out of scope are written down, and every question only the requester can answer has been answered or deferred. Requirements first, design second: the spec sections hold the *what*, the Plan section holds the *how*, and plan review starts from a ready spec, not a free-form plan.
+
+**How it gets there.** The Analyst's spec pass (`.claude/agents/analyst.md`) fills the sections, settles what the code and docs can answer, and asks the requester the rest. While a task waits for answers before plan review it stays `proposed`. A question that comes up after review has started moves the task to `blocked` until it is answered, then back to `in-review`. Ready is a condition for entering `in-review`, not a state of its own.
+
+**Who types each line.** An agent or an engineer, never the requester. The requester answers in the session, or in a comment on a draft PR or issue, in their own words; the agent or engineer copies the answer onto the question's line, with the comment's link or `in session` as the source.
+
+### What CI checks, and what review still owns
+
+`scripts/ci-checks.sh` (check 5) and `.githooks/pre-commit` (check 6) run the same block on every added or changed task file. They check only the mechanical part:
+
+- **The frontmatter parses** (any state). Line 1 is exactly `---` (so no BOM), a closing `---` exists, no line ends in CR, `state:` appears exactly once with one of the six lowercase states, and `spec_format:` appears at most once. Keys match case-insensitively; a value drops a trailing `  # comment`.
+- **No open question** once the state is `in-review`, `in-progress` or `completed`, in any `## Open questions` section (the formats below).
+- **The six spec sections** once a task carries `spec_format: 1` and is `in-review` or later: Users and stakeholders, Acceptance criteria, Non-functional requirements, Assumptions, Open questions, Out of scope. Each appears once, as an exact `## <Name>` heading, with at least one content line; Acceptance criteria has at least one checkbox item and none starting with `<given>`.
+- **Nothing hides the rest of the file:** a comment or fence still open at the end fails (any state).
+- **The file is a task file:** a regular file named `tasks/T-<n>.md` or `tasks/T-<n>.<n>….md` (or the same under `.starter/tasks/`).
+
+Review still owns everything else: whether the content is any good (testable criteria, falsifiable assumptions, the right questions), **who** answered (CI can't tell an agent from the requester; the source field gives the reviewer something to check), and whether a `Deferred to T-NNN` task exists.
+
+### The grammar
+
+**Open questions.** Each question is a checkbox item: a line that starts (after spaces) with `-`, `*`, `+`, `1.` or `1)`, a space, and a box. Text inside `<!-- -->` comments, inside fences (three or more backticks or tildes, closed by the same character at least as many times) and in blockquotes is ignored. `[ ]` is open. `[x]` or `[X]` is checked, and a checked item needs, after the box on the same line, either:
+
+- an answer: `Answer (<date>, <who>, <source>): <answer>`. The date has the shape `YYYY-MM-DD` (only the shape is checked). The source, after the last `, `, is `in session` or an `http://` / `https://` link. `<who>` may contain commas but no parentheses (write `Jane, PM`, not `Jane (PM)`). At least one word follows `): ` on the same line; a long answer continues on indented lines below; or
+- a deferral: `Deferred to T-<n>: <why>` (subtask IDs like `T-24.1.2` work).
+
+Any other box (`[]`, `[-]`, `[ x]`) counts as open. One example of each:
+
+```text
+- [ ] Q1 — Which regions launch first?
+- [x] Q2 — Is CSV export needed? — Answer (2026-01-05, Jane Doe, https://github.com/org/repo/pull/12#issuecomment-1): not this quarter.
+- [x] Q3 — Which SSO providers? — Deferred to T-042: needs the vendor review first.
+```
+
+**Headings.** A section starts at its exact heading, `## <Name>`, and ends at the next level-1 or level-2 heading (a `### Details` inside it doesn't end it), or at any heading that matches another required name, at any level. A heading that only nearly matches (another case, another `#` level, trailing `#`s, up to 3 leading spaces, or the name followed by `(` or `:`) fails `SPEC_HEADING`, with the exact text to type. `## Open Questions`, `### Open questions` and `## Out of scope (follow-ups)` are near misses.
+
+**Content.** Any non-blank line outside comments and fences counts, except a lone `…` or `- …`. So `None.` or `n/a — docs-only change.` is a complete section.
+
+**Known limits.** The check reads lines, not Markdown:
+- `<!--` opens a comment even inside inline code, so write it as `&lt;!--` in prose, or close it on the same line.
+- A bullet that starts with a link, `- [text](url)`, looks like a checkbox item. Under Open questions, start such a line with a word instead.
+- The hook compares a `git commit --amend` with the commit it replaces, so it can miss a marker that commit never had; CI checks the whole range.
+- In a task without `spec_format: 1`, only a near miss of the heading is caught. A different heading, such as `## Questions`, isn't checked at all. Opting the task in closes that gap.
+
+### Older tasks and the `spec_format:` marker
+
+`spec_format: 1` in the frontmatter opts a task into the section rules. The template carries it, so new tasks are opted in. A new file under `tasks/` without it fails `SPEC_MARKER_MISSING`, and removing it from a task that had it fails `SPEC_MARKER_REMOVED`. A move or rename counts as a new file. The first commit of a new repo (CI root mode, or an unborn `HEAD` in the hook) and `.starter/tasks/` are exempt from the missing-marker rule.
+
+Tasks without the marker are checked only for: `SPEC_FRONTMATTER`, `SPEC_UNCLOSED`, `SPEC_BAD_NAME`, `SPEC_NOT_A_FILE`, `SPEC_OPEN_QUESTION`, `SPEC_UNANSWERED`, and `SPEC_HEADING` on an Open questions near miss. **To opt an old task in,** add `spec_format: 1` and the six sections; the check runs on its next edit.
+
+**Versioning.** Versions are only ever added. When a version 2 exists, the check keeps validating version-1 files by version 1's rules, and moving a task to version 2 is an explicit edit of its `spec_format:` line. Today only `1` is known; any other value fails `SPEC_VERSION_UNKNOWN`.
+
+### Reading a failure
+
+A file with findings prints `Task <file> is not ready (<n> problems):`, then one line per finding (`<CODE> <file>: line <n>`, or the section name, with the reason in parentheses) and an indented `Fix:` line saying what to type. Nothing from the file's content is echoed, only the code, the line number and the sanitized path. When every file passes, CI prints `task-ready: <n> task file(s) checked`.
 
 ## Plan approval
 

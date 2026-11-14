@@ -189,7 +189,7 @@ Only after this grounding does the agent answer your request. You can verify thi
 
 You ask the agent to implement a feature. It does this:
 
-1. **Opens or updates a task file** at `tasks/T-NNN.md` (copying `tasks/_TEMPLATE.md` for new work, picking the next free identifier, setting `state: proposed`).
+1. **Opens or updates a task file** at `tasks/T-NNN.md` (copying `tasks/_TEMPLATE.md` for new work, picking the next free identifier, setting `state: proposed`), and **specs it until it is ready**: users, testable criteria, non-functional needs, assumptions and out-of-scope written down, and every open question answered by you or deferred. The hooks and CI refuse an open question once the task is in review.
 2. **Creates a feature branch** named `feat/<short-name>` from `main`. The pre-commit hook blocks any direct commit to `main`.
 3. **Drafts a plan** — what changes, which files, what approach — and runs the **3-round review** on the plan:
    - **Round 1 (Analysis):** Analyst + Architect + Data Engineer review for scope, security, schema concerns.
