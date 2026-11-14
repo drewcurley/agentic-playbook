@@ -358,6 +358,13 @@ if ready proposed; edit '1d'; [ "$(mark_rc)" = 1 ]; then ok "tr_marker: no front
 
 for cur_sh in $shells; do
   for cur_awk in $awks; do
+    # busybox sh runs its own awk applet, never the one on PATH, so under it the cases
+    # run once, against busybox awk, and no shim can be proven to have run.
+    if [ "$cur_sh" = busybox-sh ]; then
+      [ "$cur_awk" = "${awks##* }" ] || continue
+      echo "-- shell: $cur_sh, awk: busybox's own applet (it ignores PATH)"
+      cases; continue
+    fi
     echo "-- shell: $cur_sh, awk: $cur_awk"
     rm -f "$tmp/awk-$cur_awk/hit"
     cases
