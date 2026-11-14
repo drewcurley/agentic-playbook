@@ -97,6 +97,38 @@ hooks as executable. If you ran `setup-hooks.sh`, the sync can stop with "commit
 or stash them" on `.githooks/*`. If those files show no changes of your own in `git diff`
 beyond the mode, run `git restore .githooks`, sync again, then `sh scripts/setup-hooks.sh`.
 
+**Existing forks only: syncing the log hardening (starter T-024).** The hook and
+`scripts/ci-checks.sh` now treat file names, commit subjects and changed lines as
+untrusted, because CI logs act on commands written into them. After the sync:
+
+- **Output changes.** A placeholder or secret hit prints an indented `  <file>: line <n>`
+  under the failure line, at most 20 per file and then `  ...and N more`. It never prints the
+  line itself. The hook now also prints where a secret is, without the secret. Anything you
+  wrote that parses the old `<file>: N:+content` output must change.
+- **Names are sanitized.** In messages, each byte outside `A-Z a-z 0-9 . _ / -` and space
+  prints as `?`, so `café.md` shows as `caf??.md`. `git diff --cached --name-only` still shows
+  the real name.
+- **More is scanned.** Added lines that start with `++` were skipped before and are now
+  checked. So are type changes, such as a file replaced by a symlink. Either can newly
+  block a commit or a PR that used to pass.
+- **Git config can't change the scan.** Both scripts unset `GIT_DIFF_OPTS`, pin the diff
+  options that change its output, and run from the top of the work tree. Some setups
+  used to pass without being scanned and can now block: `color.ui=always`, or running
+  the hook or CI from a subdirectory with `diff.relative=true`.
+- **New ways to fail closed.** A diff line the parser doesn't recognise now stops CI with
+  "Parsing the diff ... failed", and the hook with "Parsing the staged diff failed". Both
+  scripts now need a work tree: run in a bare repo, such as a server-side hook, they stop
+  with "Finding the top of the work tree failed".
+- **Git's own warnings are hidden.** Every git call in both scripts discards git's
+  stderr, because a warning about a bad `.gitattributes` or `.gitmodules` quotes that
+  file's text into the log. Each failure still prints its own message. To see git's
+  warning, run the failing git command by hand.
+- **CI gains two steps** that rerun `test-ci-checks.sh` and `test-pre-commit.sh` with
+  `SH: bash`. If you edited either suite, it must pass under bash too.
+- **Open branches.** PR builds take the gate from the target branch, so an open branch
+  meets the new, stricter gate as soon as the sync lands, rebased or not. Rebase it anyway:
+  until you do, its own test suites and CI steps are the old ones.
+
 ## 2. Replace every placeholder
 ```sh
 grep -rl --exclude-dir=.starter '\[insert ' .   # find them all

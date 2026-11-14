@@ -68,7 +68,19 @@ jobs:
       - name: ci-checks.sh fixture tests
         run: sh scripts/test/test-ci-checks.sh
 
+      # The same two suites again with the scripts under bash, which drops set -e
+      # inside $( ) where dash (this image's sh) keeps it (starter T-024).
+      - name: ci-checks.sh fixture tests (bash)
+        env:
+          SH: bash
+        run: sh scripts/test/test-ci-checks.sh
+
       - name: pre-commit hook fixture tests
+        run: sh scripts/test/test-pre-commit.sh
+
+      - name: pre-commit hook fixture tests (bash)
+        env:
+          SH: bash
         run: sh scripts/test/test-pre-commit.sh
 
       - name: commit-msg hook fixture tests

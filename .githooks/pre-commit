@@ -10,14 +10,24 @@ set -e
 # Bytes, not characters: BSD sed/grep stop on invalid UTF-8, which binary content
 # in a --text diff is (starter T-014).
 LC_ALL=C; export LC_ALL
+# A scan's input must not depend on the caller's environment or git config
+# (starter T-024): GIT_DIFF_OPTS overrides -U0, diff.relative narrows a diff to the
+# current directory, diff.suppressBlankEmpty and diff.submodule=log change line
+# shapes, and color.ui=always prefixes every line with ESC. Every diff pins these.
+unset GIT_DIFF_OPTS
 
 red()  { printf "\033[0;31m%s\033[0m\n" "$*" >&2; }
 yel()  { printf "\033[0;33m%s\033[0m\n" "$*" >&2; }
 fail() { red "pre-commit BLOCK: $*"; exit 1; }
 warn() { yel "pre-commit warn:  $*"; }
 
+# Run from the top of the work tree (starter T-024): git runs hooks there, but run by
+# hand from a subdirectory a per-file pathspec would match nothing and pass.
+top=$(git rev-parse --show-toplevel 2>/dev/null) || fail "Finding the top of the work tree failed. Refusing to commit content that was not checked."
+cd "$top" || fail "Changing to the top of the work tree failed. Refusing to commit content that was not checked."
+
 # 1) Block direct commit to protected branches
-branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+branch=$(git symbolic-ref --short HEAD 2>/dev/null) || branch=""
 case "$branch" in
   main|master|production|release|trunk)
     fail "Direct commit to '$branch' is not allowed. Create a feature branch (feat/<name>, fix/<name>, chore/<name>, refactor/<name>)."
@@ -26,21 +36,82 @@ esac
 
 # Fail closed on git errors (starter T-013): each git call is captured on its own and its
 # status checked. In `git diff | grep ... || true` the status is grep's, so a git
-# error used to read as an empty diff and pass every gate. The filter is sed, which
-# exits 0 on no match, so no `|| true` is needed.
-added_only() { sed -n '/^+++/d;/^+/p'; }
+# error used to read as an empty diff and pass every gate.
 unchecked="Refusing to commit content that was not checked."
+
+# BEGIN safe-echo (starter T-024). Byte-identical in scripts/ci-checks.sh and
+# .githooks/pre-commit; scripts/test/test-ci-wiring.sh compares the two copies.
+# Logs must never carry bytes a PR controls: Azure DevOps runs `##vso[...]` found
+# anywhere in a line, GitHub Actions runs `::cmd::` at the start of one, and a
+# terminal runs escape sequences. So file names and commit subjects are printed only
+# through se_safe, and scan hits only as "path: line N", never their content.
+# Every name here starts with se_ so the block can't clobber its caller's variables.
+# Git's own stderr is discarded on every git call (2>/dev/null): a PR's .gitattributes
+# or .gitmodules makes git warn with the PR's bytes in the message. Each failure
+# prints fixed text of its own instead.
+
+# se_added: read `git diff -U0` output on stdin; print "<new line number><TAB><content>"
+# for every added line. Unlike a `/^+++/d` filter it can't drop an added line whose
+# content starts with "++". Exits 2 on any line it doesn't recognise (fail closed).
+se_added() {
+  LC_ALL=C awk '
+    /^diff --git / { st = 1; next }
+    st == 0 { if ($0 != "") exit 2; next }
+    st == 1 && substr($0, 1, 3) != "@@ " { next }
+    substr($0, 1, 3) == "@@ " {
+      if ($3 !~ /^[+][0-9]+(,[0-9]+)?$/) exit 2
+      split($3, p, ","); n = substr(p[1], 2) + 0; st = 2; next
+    }
+    {
+      c = substr($0, 1, 1)
+      if (c == "+") { print n "\t" substr($0, 2); n++ }
+      else if (c == " ") n++
+      else if (c == "\\") { if ($0 != "\\ No newline at end of file") exit 2 }
+      else if (c != "-") exit 2
+    }'
+}
+
+# se_safe <text>: print <text> on one line with every byte outside [A-Za-z0-9._/ -]
+# replaced by "?", cut to 200 bytes plus "..." if longer. Non-zero if a step failed.
+se_safe() {
+  se_s=$(printf '%s' "$1" | LC_ALL=C tr -c 'A-Za-z0-9._/ -' '?') || return 1
+  if [ "${#se_s}" -gt 200 ]; then
+    se_s=$(printf '%s' "$se_s" | LC_ALL=C cut -c1-200) || return 1
+    se_s="$se_s..."
+  fi
+  printf '%s\n' "$se_s"
+}
+
+# se_lines <ERE>: read se_added output on stdin; print the line number of each added
+# line whose content matches <ERE>. Returns grep's status (0 hit, 1 none, >1 error).
+# <ERE> is matched after "N<TAB>.*", so it must not be anchored with ^ and must not
+# use back-references: such a pattern would still block, but print no location.
+se_lines() {
+  se_tab=$(printf '\t')
+  se_m=$(LC_ALL=C grep -E -- "^[0-9]+${se_tab}.*($1)") || return $?
+  printf '%s\n' "$se_m" | cut -f1
+}
+
+# se_where <safe path>: read line numbers on stdin; print "  <path>: line N" for up
+# to 20 of them, then "  ...and N more". <safe path> must come from se_safe.
+se_where() {
+  LC_ALL=C awk -v p="$1" 'NR <= 20 { print "  " p ": line " $0 } END { if (NR > 20) print "  ...and " NR - 20 " more" }'
+}
+# END safe-echo
+
 
 # Names unquoted (core.quotePath=false) and renames as delete + add, so moved
 # content is scanned (starter T-014).
-staged_files=$(git -c core.quotePath=false diff --cached --no-renames --name-only --diff-filter=ACMR) \
+staged_files=$(git -c core.quotePath=false -c diff.relative=false -c diff.suppressBlankEmpty=false diff --cached --no-color --submodule=short --no-renames --name-only --diff-filter=ACMRT 2>/dev/null) \
   || fail "git diff --cached --name-only failed. $unchecked"
 [ -z "$staged_files" ] && exit 0
 
 # --text --no-textconv --no-ext-diff: .gitattributes (-diff, binary, textconv), an
 # external diff, or a NUL byte must not hide staged content from the scans (starter T-014).
-staged_diff=$(git diff --cached --text --no-textconv --no-ext-diff --no-renames --diff-filter=ACMR -U0) || fail "git diff --cached failed. $unchecked"
-added_lines=$(printf '%s\n' "$staged_diff" | added_only) || fail "Filtering the staged diff failed. $unchecked"
+staged_diff=$(git -c diff.relative=false -c diff.suppressBlankEmpty=false diff --cached --no-color --submodule=short --text --no-textconv --no-ext-diff --no-renames --diff-filter=ACMRT -U0 2>/dev/null) || fail "git diff --cached failed. $unchecked"
+# Two captures, so neither status hides the other's. The decisions read content only.
+added_n=$(printf '%s\n' "$staged_diff" | se_added) || fail "Parsing the staged diff failed. $unchecked"
+added_lines=$(printf '%s\n' "$added_n" | cut -f2-) || fail "Filtering the staged diff failed. $unchecked"
 
 # Is a path allowlisted for placeholders? (meta/template files — see .placeholder-allow)
 allow_file=".placeholder-allow"
@@ -59,37 +130,66 @@ placeholder_allowed() {
 #    literal path: else `a b.md`, `AGENT[S].md` or `:(top)x` is checked as some
 #    other path, or none (starter T-014). Names git still quotes can't be read back: block.
 placeholder_hit=0
+ph_where=''   # locations, printed after the BLOCK line (starter T-024)
 old_ifs=$IFS
 IFS='
 '
 set -f
 for f in $staged_files; do
-  case "$f" in \"*) fail "Unusual filename $f: git quotes it, so its placeholders can't be checked. Rename it." ;; esac
+  # Print names only through se_safe (starter T-024).
+  sf=$(se_safe "$f") || fail "Sanitizing a file name failed. $unchecked"
+  case "$f" in \"*) fail "Unusual filename $sf: git quotes it, so its placeholders can't be checked. Rename it." ;; esac
   placeholder_allowed "$f" && continue
-  f_diff=$(git --literal-pathspecs diff --cached --text --no-textconv --no-ext-diff --no-renames --diff-filter=ACMR -U0 -- "$f") || fail "git diff --cached -- '$f' failed. $unchecked"
-  added=$(printf '%s\n' "$f_diff" | added_only) || fail "Filtering the staged diff of '$f' failed. $unchecked"
+  f_diff=$(git --literal-pathspecs -c diff.relative=false -c diff.suppressBlankEmpty=false diff --cached --no-color --submodule=short --text --no-textconv --no-ext-diff --no-renames --diff-filter=ACMRT -U0 -- "$f" 2>/dev/null) || fail "git diff --cached -- '$sf' failed. $unchecked"
+  f_n=$(printf '%s\n' "$f_diff" | se_added) || fail "Parsing the staged diff of '$sf' failed. $unchecked"
+  f_added=$(printf '%s\n' "$f_n" | cut -f2-) || fail "Filtering the staged diff of '$sf' failed. $unchecked"
   rc=0
-  printf '%s\n' "$added" | grep -qE '\[insert [^]]+ here\]' || rc=$?
+  printf '%s\n' "$f_added" | grep -qE '\[insert [^]]+ here\]' || rc=$?
   case "$rc" in
     0)
-      # Never put $f inside a sed script: a filename like `x#;e cmd;#` would run
-      # cmd under GNU sed (starter T-014). printf treats it as data.
-      printf '%s\n' "$added" | grep -nE '\[insert [^]]+ here\]' \
-        | while IFS= read -r hit; do printf '%s: %s\n' "$f" "$hit"; done >&2
+      # Where, never what. A failure here only loses the line numbers.
+      ph_at=$(printf '%s\n' "$f_n" | se_lines '\[insert [^]]+ here\]') || ph_at=''
+      if [ -n "$ph_at" ]; then
+        ph_w=$(printf '%s\n' "$ph_at" | se_where "$sf") || ph_w=''
+        ph_where="$ph_where$ph_w
+"
+      fi
       placeholder_hit=1
       ;;
     1) ;;
-    *) fail "Placeholder scanner error (grep exit $rc) on '$f'. $unchecked" ;;
+    *) fail "Placeholder scanner error (grep exit $rc) on '$sf'. $unchecked" ;;
   esac
 done
 set +f
 IFS=$old_ifs
-[ "$placeholder_hit" = "1" ] && fail "Unreplaced [insert ... here] placeholder in staged content (not in an allowlisted template; see .placeholder-allow)."
+if [ "$placeholder_hit" = "1" ]; then
+  red "pre-commit BLOCK: Unreplaced [insert ... here] placeholder in staged content (not in an allowlisted template; see .placeholder-allow)."
+  printf '%s' "$ph_where" >&2
+  exit 1
+fi
 
 # 3) Basic secret scan on staged content
 #    `--` stops a pattern that starts with '-' (the private-key one) being parsed
 #    as a grep option. grep exit >=2 is a scanner error, not "no match" — fail
 #    closed so a broken scan can never silently pass a commit.
+# secret_where <ERE>: print where each staged file matches, never the match itself
+# (starter T-024). In a subshell, so IFS and set -f are restored; it never decides.
+secret_where() {
+  (
+    IFS='
+'
+    set -f
+    for f in $staged_files; do
+      case "$f" in \"*) continue ;; esac   # the placeholder loop already blocked these
+      sf=$(se_safe "$f") || continue
+      f_diff=$(git --literal-pathspecs -c diff.relative=false -c diff.suppressBlankEmpty=false diff --cached --no-color --submodule=short --text --no-textconv --no-ext-diff --no-renames --diff-filter=ACMRT -U0 -- "$f" 2>/dev/null) || continue
+      f_n=$(printf '%s\n' "$f_diff" | se_added) || continue
+      at=$(printf '%s\n' "$f_n" | se_lines "$1") || continue
+      printf '%s\n' "$at" | se_where "$sf"
+    done
+  ) >&2 || :
+}
+
 scan() {
   pattern="$1"
   label="$2"
@@ -97,8 +197,9 @@ scan() {
   printf '%s\n' "$added_lines" | grep -qE -- "$pattern" || rc=$?
   case "$rc" in
     0)
-      printf '%s\n' "$added_lines" | grep -nE -- "$pattern" >&2
-      fail "Possible secret in staged content: $label. If false positive, sanitize the diff before committing."
+      red "pre-commit BLOCK: Possible secret in staged content: $label. If false positive, sanitize the diff before committing."
+      secret_where "$pattern"
+      exit 1
       ;;
     1) ;;
     *) fail "Secret scanner error (grep exit $rc) on pattern: $label. Refusing to commit unscanned content." ;;
@@ -120,7 +221,9 @@ fi
 #    <dir>/tasks/INDEX.md counts (the project's, and an upstream history ledger's).
 index_hits=$(printf '%s\n' "$staged_files" | sed -n -e '/^tasks\/INDEX\.md$/p' -e '/\/tasks\/INDEX\.md$/p')
 if [ -n "$index_hits" ]; then
-  warn "$(printf '%s' "$index_hits" | tr '\n' ',' | sed 's/,/, /g') is regenerated from per-task frontmatter. Prefer regenerating rather than hand-editing."
+  ih=$(printf '%s\n' "$index_hits" | while IFS= read -r p; do se_safe "$p" || exit 1; done) \
+    || fail "Sanitizing a file name failed. $unchecked"
+  warn "$(printf '%s' "$ih" | tr '\n' ',' | sed 's/,/, /g') is regenerated from per-task frontmatter. Prefer regenerating rather than hand-editing."
 fi
 
 exit 0
