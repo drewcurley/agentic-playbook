@@ -275,6 +275,8 @@ SAYS = [
     (7,  "These checks come from the branch a PR merges into"),
     (8,  "Rounds 1 → 2 → 3, then the owner approves it"),
     (14, "3-round plan review, then the owner approves it"),
+    (8,  "Task file · spec ready · branch"),
+    (14, "tasks/T-NNN.md — spec it until ready, branch off main"),
     (7,  "loosening them takes a visible edit"),
     (7,  "--no-verify can't bypass this, once CI is required"),
     (7,  "The checks fail closed"),
@@ -294,6 +296,8 @@ GONE = [
     (7,  "so it can't quietly loosen"),
     (8,  "signed off before any code"),
     (14, "3-round review on the plan before a line of code"),
+    (8,  "Task file · acceptance criteria · branch"),
+    (14, "tasks/T-NNN.md — acceptance criteria, branch off main"),
     (10, "merges without updating contracts.md"),
     (11, "grep -rl '[insert'"),
     (26, "mechanical, not aspirational"),
@@ -617,7 +621,7 @@ mutate "a third rounds line" $g "Rounds 1 → 2 → 3 again, on the build" "Once
 mutate "a missing review gate" $g "(\"REVIEW GATE\", 10.5, TEAL, True)]," "(\"HUMAN GATE\", 10.5, TEAL, True)]," "slide 8 shows REVIEW GATE 3x"
 mutate "a missing test gate" $g "\"TEST GATE\",\"Before any commit\"" "\"REVIEW\",\"Before any commit\"" "slide 8 shows TEST GATE 1x"
 mutate "a missing machine gate" $g "(\"MACHINE GATE\", 10.5, GREEN, True)]," "(\"GATE\", 10.5, GREEN, True)]," "slide 8 shows MACHINE GATE 1x"
-mutate "one round per stage" $g "Task file · acceptance criteria · branch" "Round 1 review" "slide 8 doesn't place one round under one stage"
+mutate "one round per stage" $g "Task file · spec ready · branch" "Round 1 review" "slide 8 doesn't place one round under one stage"
 mutate "unqualified machine gate" $g "once wired (ADOPTING.md)" "always on" "slide 8 says: once wired"
 mutate "no human approver" $g "a human approver (team)" "an approval" "slide 8 says: human approver"
 mutate "no plan review" $g '"Plan review"' '"Review one"' "slide 8 says: Plan review"
@@ -649,6 +653,10 @@ mutate "slide 10 outgrows its box" $g "Reviewers enforce this" "$pad Reviewers e
 mutate "slide 11 outgrows its box" $g "Delete .starter/ (template history)" "$pad Delete .starter/ (template history)" "slide 11: text fits its boxes"
 mutate "slide 26 outgrows its box" $g "Once wired, hooks" "$pad Once wired, hooks" "slide 26: text fits its boxes"
 mutate "slide 27 outgrows its box" $g "builds /docs" "$pad builds /docs" "slide 27: text fits its boxes"
+mutate "slide 8's spec stage outgrows its box" $g "Task file · spec ready · branch" "Task file · spec ready · branch $pad" "slide 8: text fits its boxes"
+mutate "slide 14's spec line outgrows its box" $g "spec it until ready, branch off main" "spec it until ready, branch off main $pad" "slide 14: text fits its boxes"
+mutate "slide 8 without the spec stage" $g "Task file · spec ready · branch" "Task file · acceptance criteria · branch" "slide 8 says: Task file · spec ready · branch"
+mutate "slide 14 without the spec line" $g "spec it until ready, branch off main" "acceptance criteria, branch off main" "slide 14 says: tasks/T-NNN.md — spec it until ready"
 
 for n in 3 6 7 8 9 10 11 26 27; do
   mutate "slide $n has a box running into the footer" $g "# ---- save" "text(prs.slides[$n - 1], 0.9, 6.95, 5, 0.5, [[(\"x\", 12, MUTE)]])

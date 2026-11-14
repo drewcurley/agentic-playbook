@@ -21,6 +21,7 @@ git config --unset core.hooksPath
 | `pre-commit` | Direct commit to `main` / `master` / `production` / `release` / `trunk` | `AGENTS.md` § 7 — feature-branch workflow |
 | `pre-commit` | Any staged content containing `[insert … here]` placeholders. Each hit is reported as `  <file>: line <n>`, never its content (starter T-024) | `AGENTS.md` § 8 — hard gate |
 | `pre-commit` | Staged content containing AWS keys, private-key blocks, GitHub/Slack/OpenAI/Anthropic tokens (basic regex scan). Reports the kind of secret and `  <file>: line <n>`, never the secret (starter T-024) | Architect redline |
+| `pre-commit` | A staged task file (`tasks/T-*.md`, `.starter/tasks/T-*.md`) that isn't ready: unreadable frontmatter, an open or unanswered question once in review, a missing or empty spec section in a `spec_format: 1` task, a new task without `spec_format: 1`, or a bad name. Prints each `SPEC_*` code with its line and a `Fix:`, never the file's content. The same `task-ready` block runs in CI (check 5) (starter T-023) | `tasks/README.md#definition-of-ready` |
 | `pre-commit` | (warn only) `/docs/*` change — flags that commit-msg will require the consensus assertion | `AGENTS.md` § 0 |
 | `pre-commit` | (warn only) Hand-edits to any `tasks/INDEX.md` — it's a derived view | `tasks/README.md` |
 | `commit-msg` | Commit messages missing a Task ID (`T-NNN` or `T-NNN.M`) | `AGENTS.md` § 7 step 8 |

@@ -92,6 +92,9 @@ jobs:
         displayName: ci-pr-checks.sh fixture tests
       - script: sh scripts/test/test-task-ledgers.sh
         displayName: task ledger invariants
+      # Every shell and awk on the agent; mawk (Ubuntu's awk) must be there (starter T-023).
+      - script: sh scripts/test/test-task-ready.sh
+        displayName: task-ready block fixture tests
       - script: sh scripts/test/test-ci-wiring.sh
         displayName: every fixture suite runs in CI
       - script: sh scripts/test/test-setup-hooks.sh

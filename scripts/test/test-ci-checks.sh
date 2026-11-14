@@ -631,6 +631,97 @@ if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "placeholder in 'p.txt'" && 
 else t24_fail "a failing location pass still fails the placeholder gate"; fi
 rm -rf "$r"
 
+# 34) Task files are ready (starter T-023): check 5 runs the task-ready block on each
+#     added or changed task file. The block's own rules are in test-task-ready.sh;
+#     these cases cover which files reach it, how they are read, and failing closed.
+# tfile <root> <path> <state> [legacy]: write a ready task file (no marker if legacy).
+tfile() {
+  mkdir -p "$1/$(dirname -- "$2")"
+  { printf -- '---\nid: T-1\nstate: %s\n' "$3"; [ $# -ge 4 ] || printf 'spec_format: 1\n'
+    printf -- '---\n## Users and stakeholders\nme\n## Acceptance criteria\n- [ ] works\n## Non-functional requirements\nn/a\n'
+    printf '## Assumptions\nNone.\n## Out of scope\nNone.\n## Open questions\nNone.\n'; } > "$1/$2"
+}
+trn="task-ready: "
+r=$(make_repo); commit_on "$r" "chore: nothing T-170"; ci_on "$r"
+t24 "a range with no task file prints 'task-ready: 0 task file(s) checked'" 0 "${trn}0 task file(s) checked"; rm -rf "$r"
+r=$(make_repo); tfile "$r" tasks/T-1.md in-review; tfile "$r" tasks/T-1.2.3.md proposed; commit_on "$r" "chore: tasks T-171"; ci_on "$r"
+t24 "ready task files pass, a subtask ID included, and are counted" 0 "${trn}2 task file(s) checked" "all procedure gates passed"; rm -rf "$r"
+r=$(make_repo); tfile "$r" tasks/T-1.md in-review legacy; commit_on "$r" "chore: legacy T-172"; ci_on "$r"
+t24 "an added tasks/ file without the marker fails" 1 "CI-CHECK FAIL: Task tasks/T-1.md is not ready (1 problem):" "  SPEC_MARKER_MISSING tasks/T-1.md (a new task file without spec_format: 1)" "See tasks/README.md#definition-of-ready"
+absent "...and prints no pass line" "all procedure gates passed" "$trn"; rm -rf "$r"
+r=$(make_repo); tfile "$r" .starter/tasks/T-1.md in-review legacy; commit_on "$r" "chore: upstream T-173"; ci_on "$r"
+t24 "an added .starter/tasks/ file without the marker passes" 0 "${trn}1 task file(s) checked"; rm -rf "$r"
+root_repo x "chore: root T-174"; tfile "$r" tasks/T-1.md in-review legacy; ( cd "$r" && git add tasks && git commit -q --amend -m "chore: root T-174" ); h=$(cd "$r" && git rev-parse HEAD)
+out=$( cd "$r" && "$SH" scripts/ci-checks.sh "$(git hash-object -t tree /dev/null)" "$h" 2>&1 ); rc=$?
+t24 "root mode: seed-like files without the marker pass" 0 "${trn}1 task file(s) checked"; rm -rf "$r"
+r=$(make_repo); tfile "$r" tasks/T-1.md proposed; commit_on "$r" "chore: base T-175"; sed '/^spec_format/d' "$r/tasks/T-1.md" > "$r/x" && mv "$r/x" "$r/tasks/T-1.md"
+commit_on "$r" "chore: drop marker T-175"; b=$(cd "$r" && git rev-parse HEAD~1); ci_on "$r"
+t24 "removing the marker fails" 1 "  SPEC_MARKER_REMOVED tasks/T-1.md (the spec_format: line was removed)"; rm -rf "$r"
+r=$(make_repo); tfile "$r" tasks/T-1.md in-review legacy; commit_on "$r" "chore: base T-176"; echo more >> "$r/tasks/T-1.md"
+commit_on "$r" "chore: edit legacy T-176"; b=$(cd "$r" && git rev-parse HEAD~1); ci_on "$r"
+t24 "a modified legacy file passes" 0 "${trn}1 task file(s) checked"; rm -rf "$r"
+r=$(make_repo); tfile "$r" tasks/T-1.md in-review legacy; commit_on "$r" "chore: base T-177"; ( cd "$r" && git mv tasks/T-1.md tasks/T-2.md )
+commit_on "$r" "chore: rename T-177"; b=$(cd "$r" && git rev-parse HEAD~1); ci_on "$r"
+t24 "a legacy task renamed to another ID fails SPEC_MARKER_MISSING" 1 "  SPEC_MARKER_MISSING tasks/T-2.md (a new task file without spec_format: 1)"; rm -rf "$r"
+r=$(make_repo); tfile "$r" tasks/T-1.md in-review; printf -- '- [ ] still open\n' >> "$r/tasks/T-1.md"; printf '%s\n' "$ph" > "$r/p.txt"; commit_on "$r" "chore: open T-178"; ci_on "$r"
+t24 "an open question fails, and check 1's finding still shows" 1 "  SPEC_OPEN_QUESTION tasks/T-1.md: line 18 (an open question: a task is not ready while one is open)" "placeholder in 'p.txt'"; rm -rf "$r"
+for n in 'tasks/T-1a.md' 'Tasks/T-1.md' 'tasks/t-1.md' 'tasks/T-1/notes.md' 'tasks/T-1.MD'; do
+  r=$(make_repo); mkdir -p "$r/$(dirname -- "$n")"; echo x > "$r/$n"; commit_on "$r" "chore: bad name T-179"; ci_on "$r"
+  t24 "the bad name $n fails" 1 "  SPEC_BAD_NAME $n (this looks like a task file but is not named like one)"; rm -rf "$r"
+done
+r=$(make_repo); mkdir -p "$r/tasks"; echo x > "$r/tasks/T-1$(printf '\t')x.md"; commit_on "$r" "chore: quoted name T-180"; ci_on "$r"
+t24 "a name git quotes fails SPEC_BAD_NAME" 1 '  SPEC_BAD_NAME ?tasks/T-1?tx.md? (this looks like a task file but is not named like one)'; rm -rf "$r"
+r=$(make_repo); mkdir -p "$r/tasks"; echo x > "$r/tasks/T-##vso[x].md"; commit_on "$r" "chore: vso name T-181"; ci_on "$r"
+t24 "a bad name with ##vso[ is printed sanitized" 1 "  SPEC_BAD_NAME tasks/T-??vso?x?.md (this looks like a task file but is not named like one)"
+absent "...and never raw" "##vso["; rm -rf "$r"
+r=$(make_repo); mkdir -p "$r/x/tasks"; echo x > "$r/x/tasks/T-1.md"; commit_on "$r" "chore: nested T-182"; ci_on "$r"
+t24 "x/tasks/T-1.md is not a task file" 0 "${trn}0 task file(s) checked"; rm -rf "$r"
+r=$(make_repo); mkdir -p "$r/tasks"; ln -s ../file.txt "$r/tasks/T-1.md"; commit_on "$r" "chore: symlink task T-183"; ci_on "$r"
+t24 "a symlinked task file fails SPEC_NOT_A_FILE" 1 "  SPEC_NOT_A_FILE tasks/T-1.md (a task file must be a regular file)"; rm -rf "$r"
+r=$(make_repo); tfile "$r" tasks/T-1.md proposed; commit_on "$r" "chore: base T-184"; rm "$r/tasks/T-1.md"; ln -s ../file.txt "$r/tasks/T-1.md"
+commit_on "$r" "chore: type change T-184"; b=$(cd "$r" && git rev-parse HEAD~1); ci_on "$r"
+t24 "a type change to a symlink fails SPEC_NOT_A_FILE" 1 "  SPEC_NOT_A_FILE tasks/T-1.md (a task file must be a regular file)"; rm -rf "$r"
+r=$(make_repo); mkdir -p "$r/elsewhere"; tfile "$r" elsewhere/T-1.md in-review legacy; printf -- '- [ ] open\n' >> "$r/elsewhere/T-1.md"; ln -s elsewhere "$r/tasks"
+commit_on "$r" "chore: tasks folder symlink T-187"; ci_on "$r"
+t24 "a tasks/ folder replaced by a symlink fails" 1 "  SPEC_BAD_NAME tasks (this looks like a task file but is not named like one)"; rm -rf "$r"
+# A type change from a gitlink to a ready task file passes (its base has no marker to read).
+r=$(make_repo); ( cd "$r" && mkdir -p tasks && git update-index --add --cacheinfo "160000,$gl,tasks/T-1.md" && git commit -qm "chore: gitlink T-188" )
+tfile "$r" tasks/T-1.md proposed; ( cd "$r" && git add tasks/T-1.md && git commit -qm "chore: gitlink to file T-188" )
+b=$(cd "$r" && git rev-parse HEAD~1); h=$(cd "$r" && git rev-parse HEAD)
+st=$(cd "$r" && git diff --name-status "$b" "$h"); case "$st" in T*) ;; *) bad "gitlink precondition: name-status should be T (got: $st)" ;; esac
+ci_on "$r"; t24 "a gitlink turned into a ready task file passes" 0 "${trn}1 task file(s) checked"; rm -rf "$r"
+# Ranges of several commits: the check reads the head copy.
+r=$(make_repo); tfile "$r" tasks/T-1.md in-review; commit_on "$r" "chore: ready T-196"; printf -- '- [ ] new\n' >> "$r/tasks/T-1.md"
+commit_on "$r" "chore: question T-196"; ci_on "$r"
+t24 "in-review in one commit, a question added in the next: fails at head" 1 "  SPEC_OPEN_QUESTION tasks/T-1.md: line 18 (an open question: a task is not ready while one is open)"; rm -rf "$r"
+r=$(make_repo); tfile "$r" tasks/T-1.md blocked; printf -- '- [ ] still\n' >> "$r/tasks/T-1.md"; commit_on "$r" "chore: blocked T-197"
+sed 's/^state: blocked$/state: in-review/' "$r/tasks/T-1.md" > "$r/x" && mv "$r/x" "$r/tasks/T-1.md"; commit_on "$r" "chore: unblock T-197"; ci_on "$r"
+t24 "blocked back to in-review with a question still open fails" 1 "  SPEC_OPEN_QUESTION tasks/T-1.md: line 18 (an open question: a task is not ready while one is open)"; rm -rf "$r"
+# Rollback path: a revert-shaped PR that deletes a starter task and edits the template
+# and an INDEX passes the check.
+r=$(make_repo); tfile "$r" .starter/tasks/T-9.md completed; mkdir -p "$r/tasks"; echo t > "$r/tasks/_TEMPLATE.md"; echo i > "$r/.starter/tasks/INDEX.md"
+commit_on "$r" "chore: base T-185"; ( cd "$r" && git rm -q .starter/tasks/T-9.md ); echo t2 > "$r/tasks/_TEMPLATE.md"; echo i2 > "$r/.starter/tasks/INDEX.md"
+commit_on "$r" "Revert the spec step T-185"; b=$(cd "$r" && git rev-parse HEAD~1); ci_on "$r"
+t24 "a revert-shaped range passes the task-ready check" 0 "${trn}0 task file(s) checked" "all procedure gates passed"; rm -rf "$r"
+# ...but a plain revert that brings back a legacy near-miss heading fails, which is why
+# starter T-023's rollback recipe keeps starter T-026's heading.
+r=$(make_repo); tfile "$r" .starter/tasks/T-9.md completed legacy; commit_on "$r" "chore: base T-198"
+sed 's/^## Open questions$/## Open questions (asked of x)/' "$r/.starter/tasks/T-9.md" > "$r/x" && mv "$r/x" "$r/.starter/tasks/T-9.md"
+commit_on "$r" "Revert the heading T-198"; b=$(cd "$r" && git rev-parse HEAD~1); ci_on "$r"
+t24 "a plain revert restoring a near-miss heading fails" 1 "  SPEC_HEADING .starter/tasks/T-9.md: line 15 (this heading nearly matches a required section)"; rm -rf "$r"
+# Fail closed: every git call and the awk run.
+r=$(make_repo); tfile "$r" tasks/T-1.md proposed; commit_on "$r" "chore: base T-186"; echo more >> "$r/tasks/T-1.md"
+commit_on "$r" "chore: edit T-186"; b=$(cd "$r" && git rev-parse HEAD~1)
+run_ci "$r" "$b" "$h"; t24 "fail-closed fixture: an edited marked task passes" 0 "${trn}1 task file(s) checked"
+run_ci "$r" "$b" "$h" git '*--name-status*';      expect_closed "git diff --name-status $b..$h failed" "a name-status error fails closed" stub
+run_ci "$r" "$b" "$h" git '*ls-tree --full-tree*'; expect_closed "git ls-tree $h -- 'tasks/T-1.md' failed" "an ls-tree error fails closed" stub
+run_ci "$r" "$b" "$h" git "cat-file blob $h:*";    expect_closed "Reading 'tasks/T-1.md' at $h failed" "a head read error fails closed" stub
+run_ci "$r" "$b" "$h" git "cat-file blob $b:*";    expect_closed "Reading 'tasks/T-1.md' at $b failed" "an unreadable base fails closed" stub
+run_ci "$r" "$b" "$h" git '*ls-tree --full-tree*' 2; expect_closed "git ls-tree $b -- 'tasks/T-1.md' failed" "a base ls-tree error fails closed" stub
+run_ci "$r" "$b" "$h" awk '*SPEC_FRONTMATTER*';    expect_closed "Checking the base copy of 'tasks/T-1.md' failed" "a broken awk on the base copy fails closed" stub
+run_ci "$r" "$b" "$h" awk '*SPEC_FRONTMATTER*' 2;  expect_closed "Checking task file 'tasks/T-1.md' failed" "a broken awk on the head copy fails closed" stub
+rm -rf "$r"
+
 echo
 echo "Results: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

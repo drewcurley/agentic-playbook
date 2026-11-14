@@ -264,7 +264,7 @@ else bad "filename with sed syntax ran a command (PWNED exists)"; fi
 #     is covered without the hook naming it (starter T-015).
 # index_warn <path> <yes|no> <description>
 index_warn() {
-  r=$(make_repo); mkdir -p "$r/$(dirname -- "$1")"; echo row >> "$r/$1"
+  r=$(make_repo); mkdir -p "$r/$(dirname -- "$1")"; printf '%b' "${4-}" > "$r/$1"; echo row >> "$r/$1"
   ( cd "$r" && git add -- "$1" )
   err=$( cd "$r" && "$SH" "$sut" 2>&1 >/dev/null ); rc=$?
   hit=no; printf '%s' "$err" | grep -qF -- "$1 is regenerated from per-task frontmatter" && hit=yes
@@ -273,7 +273,7 @@ index_warn() {
 }
 index_warn tasks/INDEX.md          yes "hand-edit of tasks/INDEX.md warns"
 index_warn .starter/tasks/INDEX.md yes "hand-edit of the starter ledger's INDEX.md warns"
-index_warn tasks/T-001.md          no  "a task file doesn't warn"
+index_warn tasks/T-001.md          no  "a task file doesn't warn" '---\nstate: proposed\nspec_format: 1\n---\n'
 index_warn tasks/INDEX.md.orig     no  "INDEX.md.orig doesn't warn"
 index_warn mytasks/INDEX.md        no  "mytasks/INDEX.md doesn't warn"
 
@@ -462,6 +462,98 @@ r=$(make_repo); mkdir -p "$r/##vso[x]/tasks" "$r/tasks"; echo row > "$r/##vso[x]
 hook_in "$r"
 t24 "the INDEX warning sanitizes and joins its paths" 0 "??vso?x?/tasks/INDEX.md, tasks/INDEX.md is regenerated from per-task frontmatter"
 absent "...and never prints a raw name" "##vso["; rm -rf "$r"
+
+# 20) Staged task files are ready (starter T-023): check 6 runs the task-ready block on
+#     each staged task file, read from the index. The block's own rules are in
+#     test-task-ready.sh; these cases cover which files reach it and failing closed.
+# tfile <root> <path> <state> [legacy]: write a ready task file (no marker if legacy).
+tfile() {
+  mkdir -p "$1/$(dirname -- "$2")"
+  { printf -- '---\nid: T-1\nstate: %s\n' "$3"; [ $# -ge 4 ] || printf 'spec_format: 1\n'
+    printf -- '---\n## Users and stakeholders\nme\n## Acceptance criteria\n- [ ] works\n## Non-functional requirements\nn/a\n'
+    printf '## Assumptions\nNone.\n## Out of scope\nNone.\n## Open questions\nNone.\n'; } > "$1/$2"
+}
+tblock="pre-commit BLOCK: a staged task file is not ready"
+# out_in <root>: like hook_in, but keeps stdout (the pass line) in $out.
+out_in() { ( cd "$1" && git add -A ); out=$( cd "$1" && "$SH" "$sut" 2>/dev/null ); }
+r=$(make_repo); tfile "$r" tasks/T-1.md in-review; tfile "$r" tasks/T-1.2.3.md proposed; hook_in "$r"
+t24 "ready task files pass, a subtask ID included" 0; out_in "$r"
+if [ "$out" = "task-ready: 2 task file(s) checked" ]; then ok "...and the pass line counts them"; else bad "...and the pass line counts them (got: $out)"; fi; rm -rf "$r"
+r=$(make_repo); tfile "$r" tasks/T-1.md in-review legacy; hook_in "$r"
+t24 "a staged new tasks/ file without the marker blocks" 1 "$tblock" "Task tasks/T-1.md is not ready (1 problem):" "  SPEC_MARKER_MISSING tasks/T-1.md (a new task file without spec_format: 1)"; rm -rf "$r"
+r=$(make_repo); tfile "$r" .starter/tasks/T-1.md in-review legacy; hook_in "$r"
+t24 "a staged new .starter/tasks/ file without the marker passes" 0; rm -rf "$r"
+new_repo; tfile "$r" tasks/T-1.md proposed legacy; tfile "$r" tasks/T-1.1.md proposed legacy; hook_in "$r"
+t24 "an unborn-HEAD first commit of seed-like files passes" 0; rm -rf "$r"
+new_repo; tfile "$r" tasks/T-1.md in-review; printf -- '- [ ] open\n' >> "$r/tasks/T-1.md"; hook_in "$r"
+t24 "...but an open question still blocks on an unborn HEAD" 1 "  SPEC_OPEN_QUESTION tasks/T-1.md: line 18 (an open question: a task is not ready while one is open)"; rm -rf "$r"
+r=$(make_repo); tfile "$r" tasks/T-1.md proposed; ( cd "$r" && git add -A && git commit -qm "chore: base T-190" )
+sed '/^spec_format/d' "$r/tasks/T-1.md" > "$r/x" && mv "$r/x" "$r/tasks/T-1.md"; hook_in "$r"
+t24 "removing the marker blocks" 1 "  SPEC_MARKER_REMOVED tasks/T-1.md (the spec_format: line was removed)"; rm -rf "$r"
+r=$(make_repo); tfile "$r" tasks/T-1.md in-review legacy; ( cd "$r" && git add -A && git commit -qm "chore: base T-191" )
+echo more >> "$r/tasks/T-1.md"; hook_in "$r"; t24 "a modified legacy file passes" 0
+( cd "$r" && git mv tasks/T-1.md tasks/T-2.md ); hook_in "$r"
+t24 "a legacy task renamed to another ID blocks SPEC_MARKER_MISSING" 1 "  SPEC_MARKER_MISSING tasks/T-2.md (a new task file without spec_format: 1)"; rm -rf "$r"
+for n in 'tasks/T-1a.md' 'Tasks/T-1.md' 'tasks/t-1.md' 'tasks/T-1/notes.md'; do
+  r=$(make_repo); mkdir -p "$r/$(dirname -- "$n")"; echo x > "$r/$n"; hook_in "$r"
+  t24 "the bad name $n blocks" 1 "  SPEC_BAD_NAME $n (this looks like a task file but is not named like one)"; rm -rf "$r"
+done
+r=$(make_repo); mkdir -p "$r/tasks"; ln -s ../file.txt "$r/tasks/T-1.md"; hook_in "$r"
+t24 "a staged symlinked task file blocks SPEC_NOT_A_FILE" 1 "  SPEC_NOT_A_FILE tasks/T-1.md (a task file must be a regular file)"; rm -rf "$r"
+r=$(make_repo); tfile "$r" tasks/T-1.md proposed; ( cd "$r" && git add -A && git commit -qm "chore: base T-192" )
+rm "$r/tasks/T-1.md"; ln -s ../file.txt "$r/tasks/T-1.md"; ( cd "$r" && git add -A )
+st=$(cd "$r" && git diff --cached --name-status); case "$st" in T*) ;; *) bad "type-change precondition: name-status should be T (got: $st)" ;; esac
+hook_in "$r"; t24 "a type-change-only commit reaches the check and blocks" 1 "  SPEC_NOT_A_FILE tasks/T-1.md (a task file must be a regular file)"; rm -rf "$r"
+r=$(make_repo); mkdir -p "$r/elsewhere"; tfile "$r" elsewhere/T-1.md in-review legacy; ln -s elsewhere "$r/tasks"; hook_in "$r"
+t24 "a staged tasks/ folder symlink blocks" 1 "  SPEC_BAD_NAME tasks (this looks like a task file but is not named like one)"; rm -rf "$r"
+r=$(make_repo); tfile "$r" tasks/T-1.md proposed legacy; ( cd "$r" && git add -A ); printf '0123456789012345678901234567890123456789\n' > "$r/.git/refs/heads/feat/x"
+err=$( cd "$r" && "$SH" "$sut" 2>&1 >/dev/null ); rc=$?
+t24 "a corrupt HEAD is not mistaken for an unborn one" 1 "Reading HEAD failed"; rm -rf "$r"
+r=$(make_repo); ( cd "$r" && mkdir -p tasks && git update-index --add --cacheinfo "160000,1111111111111111111111111111111111111111,tasks/T-1.md" && git commit -qm "chore: gitlink T-195" )
+tfile "$r" tasks/T-1.md proposed; ( cd "$r" && git add tasks/T-1.md ); err=$( cd "$r" && "$SH" "$sut" 2>&1 >/dev/null ); rc=$?
+t24 "a staged gitlink-to-file type change passes" 0; rm -rf "$r"
+# Unborn HEAD: each git call that decides it fails closed, and a packed branch whose
+# commit is missing is not mistaken for a first commit.
+for g in 'symbolic-ref -q HEAD' 'rev-parse --git-path*' 'for-each-ref*'; do
+  new_repo; tfile "$r" tasks/T-1.md proposed legacy; hook_stub "$r" git "$g"
+  t24 "on an unborn HEAD, a '$g' error fails closed" 1 "Reading HEAD failed"; [ -e "$tmp/hit" ] || bad "git stub was reached ($g)"; rm -rf "$r"
+done
+new_repo; tfile "$r" tasks/T-1.md proposed legacy
+printf '# pack-refs with: peeled fully-peeled sorted\n0123456789012345678901234567890123456789 refs/heads/feat/x\n' > "$r/.git/packed-refs"; hook_in "$r"
+t24 "a packed branch with a missing commit is not an unborn HEAD" 1 "Reading HEAD failed"; rm -rf "$r"
+# Names are printed sanitized in the hook too.
+r=$(make_repo); mkdir -p "$r/tasks"; echo x > "$r/tasks/T-##vso[x].md"; hook_in "$r"
+t24 "a bad name with ##vso[ is printed sanitized" 1 "  SPEC_BAD_NAME tasks/T-??vso?x?.md (this looks like a task file but is not named like one)"
+absent "...and never raw" "##vso["; rm -rf "$r"
+r=$(make_repo); mkdir -p "$r/tasks"; echo x > "$r/tasks/T-1$(printf '\t')x.md"; hook_in "$r"
+t24 "a name git quotes blocks" 1 "Unusual filename"; rm -rf "$r"
+# The index is what is checked, not the working tree.
+r=$(make_repo); tfile "$r" tasks/T-1.md in-review; printf -- '- [ ] open\n' >> "$r/tasks/T-1.md"; ( cd "$r" && git add -A ); tfile "$r" tasks/T-1.md in-review
+err=$( cd "$r" && "$SH" "$sut" 2>&1 >/dev/null ); rc=$?
+t24 "a staged open question blocks though the working tree is fixed" 1 "  SPEC_OPEN_QUESTION tasks/T-1.md: line 18 (an open question: a task is not ready while one is open)"
+( cd "$r" && git add -A ); printf -- '- [ ] open\n' >> "$r/tasks/T-1.md"
+err=$( cd "$r" && "$SH" "$sut" 2>&1 >/dev/null ); rc=$?
+t24 "...and a ready staged copy passes though the working tree is not" 0; rm -rf "$r"
+# git commit <path> commits the working-tree copy through a temporary index (GIT_INDEX_FILE).
+r=$(make_repo); mkdir -p "$r/.hk"; cp "$sut" "$r/.hk/pre-commit"; chmod +x "$r/.hk/pre-commit"
+tfile "$r" tasks/T-1.md proposed; ( cd "$r" && git add tasks/T-1.md && git commit -qm "chore: base T-193" && git config core.hooksPath .hk )
+printf -- '- [ ] open\n' >> "$r/tasks/T-1.md"; sed 's/^state: proposed$/state: in-review/' "$r/tasks/T-1.md" > "$r/x" && mv "$r/x" "$r/tasks/T-1.md"
+err=$( cd "$r" && git commit -qm "chore: path commit T-193" tasks/T-1.md 2>&1 ); rc=$?
+if [ "$rc" -ne 0 ] && printf '%s' "$err" | grep -qF "SPEC_OPEN_QUESTION tasks/T-1.md: line 18"; then ok "git commit <path> checks the copy it commits"
+else t24_fail "git commit <path> checks the copy it commits"; fi
+rm -rf "$r"
+# Fail closed: every git call and the awk run.
+r=$(make_repo); tfile "$r" tasks/T-1.md proposed; ( cd "$r" && git add -A && git commit -qm "chore: base T-194" ); echo more >> "$r/tasks/T-1.md"
+hook_in "$r"; t24 "fail-closed fixture: an edited marked task passes" 0
+hook_stub "$r" git '*--name-status*'; t24 "a name-status error fails closed" 1 "git diff --cached --name-status failed"; [ -e "$tmp/hit" ] || bad "git stub was reached"
+hook_stub "$r" git '*ls-files --stage*'; t24 "an ls-files error fails closed" 1 "git ls-files --stage -- 'tasks/T-1.md' failed"; [ -e "$tmp/hit" ] || bad "git stub was reached"
+hook_stub "$r" git 'cat-file blob :0:*'; t24 "a staged read error fails closed" 1 "Reading the staged 'tasks/T-1.md' failed"; [ -e "$tmp/hit" ] || bad "git stub was reached"
+hook_stub "$r" git 'cat-file blob HEAD:*'; t24 "an unreadable HEAD copy fails closed" 1 "Reading 'tasks/T-1.md' at HEAD failed"; [ -e "$tmp/hit" ] || bad "git stub was reached"
+hook_stub "$r" git '*ls-tree --full-tree HEAD*'; t24 "an ls-tree HEAD error fails closed" 1 "git ls-tree HEAD -- 'tasks/T-1.md' failed"; [ -e "$tmp/hit" ] || bad "git stub was reached"
+hook_stub "$r" awk '*SPEC_FRONTMATTER*'; t24 "a broken awk fails closed" 1 "Checking the HEAD copy of 'tasks/T-1.md' failed. Refusing to commit content that was not checked."; [ -e "$tmp/hit" ] || bad "awk stub was reached"
+rm -rf "$r"
+r=$(make_repo); tfile "$r" tasks/T-1.md proposed; hook_stub "$r" awk '*SPEC_FRONTMATTER*'
+t24 "a broken awk on a new file fails closed" 1 "Checking task file 'tasks/T-1.md' failed. Refusing to commit content that was not checked."; rm -rf "$r"
 
 echo
 echo "Results: $pass passed, $fail failed"
