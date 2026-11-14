@@ -14,12 +14,12 @@
 | [T-009.3](./T-009.3.md) | AC IDs traced to passing tests | sdet | — | in-review | chore/sdd-tier1-plan | — |
 | [T-009.4](./T-009.4.md) | Review evidence bound to the diff | review-coordinator | — | in-review | chore/sdd-tier1-plan | — |
 | [T-009.5](./T-009.5.md) | Independent agent review in CI | architect | — | in-review | chore/sdd-tier1-plan | — |
+| [T-010](./T-010.md) | Ledger and docs housekeeping | review-coordinator | — | in-review | chore/t-010-ledger-housekeeping | — |
 
 ## Backlog
 
 | ID | Title | Owner | State |
 |----|-------|-------|-------|
-| [T-010](./T-010.md) | Ledger and docs housekeeping | review-coordinator | proposed |
 | [T-011](./T-011.md) | Migration guide for pre-T-009 forks | devops | proposed |
 | [T-025](./T-025.md) | Keep the CI checkout step's git warnings out of the log | devops | proposed |
 | [T-027](./T-027.md) | Make ci-pr-checks.sh discard git's stderr | devops | proposed |
