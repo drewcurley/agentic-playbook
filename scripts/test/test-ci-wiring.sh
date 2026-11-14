@@ -7,7 +7,11 @@
 # adds: one pinned Ubuntu image across both files; a least-privilege GitHub workflow
 # (actions pinned by SHA, no ${{ }} in run: scripts); only one workflow path at a time;
 # the local shellcheck steps in .githooks/README.md match the CI pin; and the docs no
-# longer describe GitHub Actions as parked or unapproved.
+# longer describe GitHub Actions as parked or unapproved. Starter T-024 adds: the
+# safe-echo block is byte-identical in scripts/ci-checks.sh and .githooks/pre-commit;
+# neither prints a raw file name or subject; every se_safe call checks its status; the
+# scan decisions read content only (cut -f2-); every git diff/show pins its output
+# shape; and both CI files run the two scan suites under bash as well.
 #
 # Run:  sh scripts/test/test-ci-wiring.sh
 #       CI_WIRING_ROOT=<dir> sh scripts/test/test-ci-wiring.sh   (check another tree)
@@ -174,6 +178,125 @@ check_framing() {
   done
 }
 
+# --- PR-controlled text never reaches the log (starter T-024) ------------------------
+se_scripts='scripts/ci-checks.sh .githooks/pre-commit'
+
+# check_block <root>: one safe-echo block per script, byte-identical in both.
+check_block() {
+  for s in $se_scripts; do
+    [ -f "$1/$s" ] || { echo "FAIL: $s is missing"; return 0; }
+    nb=$(grep -c '^# BEGIN safe-echo' "$1/$s"); ne=$(grep -c '^# END safe-echo$' "$1/$s")
+    [ "$nb" -eq 1 ] || echo "FAIL: $s has $nb BEGIN safe-echo markers, not 1"
+    [ "$ne" -eq 1 ] || echo "FAIL: $s has $ne END safe-echo markers, not 1"
+  done
+  sed -n '/^# BEGIN safe-echo/,/^# END safe-echo$/p' "$1/scripts/ci-checks.sh" > "$tmp/blk1"
+  sed -n '/^# BEGIN safe-echo/,/^# END safe-echo$/p' "$1/.githooks/pre-commit" > "$tmp/blk2"
+  [ -s "$tmp/blk1" ] || echo "FAIL: scripts/ci-checks.sh has no safe-echo block"
+  cmp -s "$tmp/blk1" "$tmp/blk2" || echo "FAIL: the safe-echo blocks in scripts/ci-checks.sh and .githooks/pre-commit differ"
+}
+
+# check_unsanitized <root>: no message or printf expands a raw name or subject. Comment
+# lines are skipped; $sf, $f_diff and the like don't match.
+check_unsanitized() {
+  for s in $se_scripts; do
+    [ -f "$1/$s" ] || continue
+    grep -n '' "$1/$s" | grep -v '^[0-9]*:[[:space:]]*#' \
+      | grep -E '(^|[[:space:];&|:])(err|fail|die|warn)[[:space:]]+"[^"]*\$\{?(f|first|hit|index_hits)([^A-Za-z0-9_]|$)' \
+      | sed "s|^|FAIL: $s prints an unsanitized name: |"
+    grep -n '' "$1/$s" | grep -v '^[0-9]*:[[:space:]]*#' \
+      | grep -E '(printf|echo)[^|]*\$\{?(f|first|hit|index_hits)([^A-Za-z0-9_]|$)[^|]*$' \
+      | sed "s|^|FAIL: $s prints an unsanitized name: |"
+  done
+}
+
+# check_se_status <root>: every $(se_safe "...") is followed by ||, so a sanitizer
+# failure blocks under bash too (bash drops set -e inside $( )).
+check_se_status() {
+  for s in $se_scripts; do
+    [ -f "$1/$s" ] || continue
+    grep -n 'se_safe "[^"]*")' "$1/$s" | grep -v '^[0-9]*:[[:space:]]*#' \
+      | grep -vE 'se_safe "[^"]*")[[:space:]]*[|][|]' \
+      | sed "s|^|FAIL: $s doesn't check se_safe's status: |"
+  done
+}
+
+# check_decisions <root>: each grep -q over diff content reads a cut -f2- capture
+# (content only), never the N<TAB>content or raw diff text; at least two per script.
+check_decisions() {
+  for s in $se_scripts; do
+    [ -f "$1/$s" ] || continue
+    awk -v s="$s" '
+      /^[ \t]*#/ { next }
+      /=[$][(]printf .*[|] cut -f2-[)]/ { v = $0; sub(/^[ \t]*/, "", v); sub(/=.*/, "", v); cut[v] = 1 }
+      /printf .*[|] grep -q/ && match($0, /"[$][A-Za-z_][A-Za-z0-9_]*"/) {
+        v = substr($0, RSTART + 2, RLENGTH - 3)
+        if (v ~ /^(added|added_n|added_lines|f_added|f_n|f_diff|full_diff|staged_diff)$/) {
+          n++; if (!(v in cut)) print "FAIL: " s ":" NR " decides on $" v ", not a cut -f2- capture"
+        }
+      }
+      END { if (n < 2) print "FAIL: " s " has " n + 0 " decision greps on diff content, not at least 2" }' "$1/$s"
+  done
+}
+
+# check_diff_flags <root>: every $(git ... diff|show ...) pins the output shape, and
+# each script unsets GIT_DIFF_OPTS.
+check_diff_flags() {
+  for s in $se_scripts; do
+    [ -f "$1/$s" ] || continue
+    awk -v s="$s" '
+      /^[ \t]*#/ { next }
+      /[$][(]git ([^ ]+ )*(diff|show) / { n++
+        if (!index($0, "-c diff.relative=false")) print "FAIL: " s ":" NR " runs git without -c diff.relative=false"
+        if (!index($0, "-c diff.suppressBlankEmpty=false")) print "FAIL: " s ":" NR " runs git without -c diff.suppressBlankEmpty=false"
+        if (!index($0, "--no-color")) print "FAIL: " s ":" NR " runs git without --no-color"
+        if (!index($0, "--submodule=short")) print "FAIL: " s ":" NR " runs git without --submodule=short"
+      }
+      END { if (!n) print "FAIL: " s " runs no git diff or show" }' "$1/$s"
+    grep -qx 'unset GIT_DIFF_OPTS' "$1/$s" || echo "FAIL: $s doesn't unset GIT_DIFF_OPTS"
+  done
+}
+
+# check_git_quiet <root>: every git call is a $(git ... 2>/dev/null) capture. Git's own
+# warnings quote a repo's .gitattributes and .gitmodules, which a PR controls.
+check_git_quiet() {
+  for s in $se_scripts; do
+    [ -f "$1/$s" ] || continue
+    awk -v s="$s" '
+      /^[ \t]*#/ { next }
+      { a = $0; c = gsub(/[$][(]git /, "", a); b = $0; q = gsub(/2>\/dev\/null[)]/, "", b); n += c
+        if (q < c) print "FAIL: " s ":" NR " runs git without 2>/dev/null"
+        if ($0 ~ /(^|[;&|])[ \t]*git /) print "FAIL: " s ":" NR " runs git outside a $( ) capture" }
+      END { if (!n) print "FAIL: " s " runs no git capture" }' "$1/$s"
+  done
+}
+
+# check_se_where <root>: se_where is only ever handed the sanitized name, $sf.
+check_se_where() {
+  for s in $se_scripts; do
+    [ -f "$1/$s" ] || continue
+    grep -n 'se_where' "$1/$s" | grep -v '^[0-9]*:[[:space:]]*#' | grep -v 'se_where() {' \
+      | grep -v 'se_where "[$]sf"' | sed "s|^|FAIL: $s passes se_where an unsanitized path: |"
+  done
+}
+
+# check_bash_steps <root>: each CI file has a step running the two scan suites with
+# SH: bash (Ubuntu's sh is dash; bash drops set -e inside $( )). A step is one list item.
+# Only the bare form counts: a quoted SH: "bash" is not recognised.
+check_bash_steps() {
+  for c in azure-pipelines.yml $(gh_workflow "$1"); do
+    [ -f "$1/$c" ] || continue
+    for suite in scripts/test/test-ci-checks.sh scripts/test/test-pre-commit.sh; do
+      awk -v s="$suite" '
+        function done_step() { if (hs && hb) found = 1; hs = 0; hb = 0 }
+        /^[ \t]*- / { done_step() }
+        { line = $0; sub(/^[ \t]*-?[ \t]*/, "", line) }
+        line == "script: sh " s || line == "run: sh " s { hs = 1 }
+        line == "SH: bash" { hb = 1 }
+        END { done_step(); exit !found }' "$1/$c" || echo "FAIL: $c has no SH: bash step for $suite"
+    done
+  done
+}
+
 # report <description> <check output>
 report() {
   if printf '%s\n' "$2" | grep -q '^FAIL'; then
@@ -196,6 +319,14 @@ report "the GitHub workflow runs with least privilege ($root)" "$(check_gh_privs
 report "every Azure job has a timeout ($root)" "$(check_az_timeouts "$root")"
 report "the local shellcheck steps match the CI pin ($root)" "$(check_local_pin "$root")"
 report "the docs don't call GitHub Actions parked or unapproved ($root)" "$(check_framing "$root")"
+report "the safe-echo block is identical in both scripts ($root)" "$(check_block "$root")"
+report "no script prints a raw name or subject ($root)" "$(check_unsanitized "$root")"
+report "every se_safe call checks its status ($root)" "$(check_se_status "$root")"
+report "the scan decisions read content only ($root)" "$(check_decisions "$root")"
+report "every git diff/show pins its output shape ($root)" "$(check_diff_flags "$root")"
+report "both CI files run the scan suites under bash ($root)" "$(check_bash_steps "$root")"
+report "every git call discards git's own stderr ($root)" "$(check_git_quiet "$root")"
+report "se_where only gets the sanitized name ($root)" "$(check_se_where "$root")"
 
 # --- Fixtures -------------------------------------------------------------------
 fx() {
@@ -342,6 +473,108 @@ fxg; printf 'GitHub Actions is not yet approved for general org use.\n' >> "$tmp
 expect_fail "\"not yet approved\" wording is caught" "README.md still calls Actions parked or unapproved" "$(check_framing "$tmp/fxg")"
 fxg; printf 'Azure DevOps now; GitHub Actions parked.\n' >> "$tmp/fxg/README.md"
 expect_fail "\"Actions parked\" wording is caught" "README.md still calls Actions parked or unapproved" "$(check_framing "$tmp/fxg")"
+
+# --- safe-echo fixtures (starter T-024) ----------------------------------------------
+# fxs: copies of this tree's two scripts, so each fixture mutates the real code.
+fxs() {
+  rm -rf "$tmp/fxs"; mkdir -p "$tmp/fxs/scripts" "$tmp/fxs/.githooks"
+  cp "$root/scripts/ci-checks.sh" "$tmp/fxs/scripts/ci-checks.sh"
+  cp "$root/.githooks/pre-commit" "$tmp/fxs/.githooks/pre-commit"
+}
+ci="$tmp/fxs/scripts/ci-checks.sh"; pc="$tmp/fxs/.githooks/pre-commit"
+fxs; report "fixture: this tree's scripts pass every safe-echo check" \
+  "$(check_block "$tmp/fxs"; check_unsanitized "$tmp/fxs"; check_se_status "$tmp/fxs"; check_decisions "$tmp/fxs"; check_diff_flags "$tmp/fxs"; check_git_quiet "$tmp/fxs"; check_se_where "$tmp/fxs")"
+fxs; edit_fx "$pc" 's/NR <= 20/NR <= 21/'
+expect_fail "a drifted safe-echo block is caught" "safe-echo blocks in scripts/ci-checks.sh and .githooks/pre-commit differ" "$(check_block "$tmp/fxs")"
+fxs; printf '# BEGIN safe-echo again\n' >> "$ci"
+expect_fail "a second BEGIN marker is caught" "scripts/ci-checks.sh has 2 BEGIN safe-echo markers" "$(check_block "$tmp/fxs")"
+fxs; edit_fx "$pc" '/^# END safe-echo$/d'
+expect_fail "a missing END marker is caught" ".githooks/pre-commit has 0 END safe-echo markers" "$(check_block "$tmp/fxs")"
+# shellcheck disable=SC2016  # the $f etc. are the fixtures' text
+for line in '  err "Unreplaced placeholder in $f"' "  die \"git diff -- '\$f' failed.\"" '  fail "bad ${f}"' \
+            '  warn "$index_hits is regenerated"' "  printf 'First line: %s\\n' \"\$first\""; do
+  fxs; printf '%s\n' "$line" >> "$ci"
+  expect_fail "an unsanitized message is caught: $line" "scripts/ci-checks.sh prints an unsanitized name" "$(check_unsanitized "$tmp/fxs")"
+done
+# shellcheck disable=SC2016
+for line in '  err "Unreplaced placeholder in $sf"' "  die \"bad \$f_diff\"" '  # err "x $f"' \
+            "  printf '%s\\n' \"\$f\" | grep -q x"; do
+  fxs; printf '%s\n' "$line" >> "$pc"
+  report "fixture: a safe line isn't flagged: $line" "$(check_unsanitized "$tmp/fxs")"
+done
+fxs
+# shellcheck disable=SC2016
+printf '  sf=$(se_safe "$f")\n' >> "$pc"
+expect_fail "an unchecked se_safe call is caught" ".githooks/pre-commit doesn't check se_safe's status" "$(check_se_status "$tmp/fxs")"
+fxs
+# shellcheck disable=SC2016
+edit_fx "$ci" 's/printf '"'"'%s\\n'"'"' "$added" | grep -qE/printf '"'"'%s\\n'"'"' "$added_n" | grep -qE/'
+expect_fail "a decision on numbered lines is caught" "decides on \$added_n, not a cut -f2- capture" "$(check_decisions "$tmp/fxs")"
+fxs
+# shellcheck disable=SC2016
+edit_fx "$pc" 's/printf '"'"'%s\\n'"'"' "$f_added" | grep -qE/printf '"'"'%s\\n'"'"' "$f_diff" | grep -qE/'
+expect_fail "a decision on the raw diff is caught" "decides on \$f_diff, not a cut -f2- capture" "$(check_decisions "$tmp/fxs")"
+for flag in ' -c diff.relative=false' ' -c diff.suppressBlankEmpty=false' ' --no-color' ' --submodule=short'; do
+  fxs; edit_fx "$ci" "s/$flag//"
+  expect_fail "a git diff without$flag is caught" "runs git without$flag" "$(check_diff_flags "$tmp/fxs")"
+done
+fxs; edit_fx "$pc" '/^unset GIT_DIFF_OPTS$/d'
+expect_fail "a script that keeps GIT_DIFF_OPTS is caught" ".githooks/pre-commit doesn't unset GIT_DIFF_OPTS" "$(check_diff_flags "$tmp/fxs")"
+fxs
+# shellcheck disable=SC2016  # the $... is the fixture's sed text
+edit_fx "$ci" 's|"$from" "$head" -U0 2>/dev/null)|"$from" "$head" -U0)|'
+expect_fail "a git call that shows git's stderr is caught" "scripts/ci-checks.sh:" "$(check_git_quiet "$tmp/fxs")"
+expect_fail "...naming the missing redirect" "runs git without 2>/dev/null" "$(check_git_quiet "$tmp/fxs")"
+fxs; printf 'git diff --cached --name-only\n' >> "$pc"
+expect_fail "a bare git command is caught" ".githooks/pre-commit:" "$(check_git_quiet "$tmp/fxs")"
+expect_fail "...as running outside a capture" "runs git outside a \$( ) capture" "$(check_git_quiet "$tmp/fxs")"
+fxs
+# shellcheck disable=SC2016  # the $... is the fixture's sed text
+edit_fx "$pc" 's/| se_where "$sf"$/| se_where "$f"/'
+expect_fail "se_where handed a raw name is caught" ".githooks/pre-commit passes se_where an unsanitized path" "$(check_se_where "$tmp/fxs")"
+
+# bash-step fixtures: an Azure file and a workflow, each with dash and bash runs.
+fxb() {
+  rm -rf "$tmp/fxb"; mkdir -p "$tmp/fxb/.github/workflows"
+  cat > "$tmp/fxb/azure-pipelines.yml" <<'EOF'
+      - script: sh scripts/test/test-ci-checks.sh
+        displayName: ci-checks
+      - script: sh scripts/test/test-ci-checks.sh
+        displayName: ci-checks (bash)
+        env:
+          SH: bash
+      - script: sh scripts/test/test-pre-commit.sh
+        displayName: pre-commit
+      - script: sh scripts/test/test-pre-commit.sh
+        displayName: pre-commit (bash)
+        env:
+          SH: bash
+EOF
+  cat > "$tmp/fxb/.github/workflows/checks.yml" <<'EOF'
+      - name: ci-checks
+        run: sh scripts/test/test-ci-checks.sh
+      - name: ci-checks (bash)
+        env:
+          SH: bash
+        run: sh scripts/test/test-ci-checks.sh
+      - name: pre-commit
+        run: sh scripts/test/test-pre-commit.sh
+      - name: pre-commit (bash)
+        run: sh scripts/test/test-pre-commit.sh
+        env:
+          SH: bash
+EOF
+}
+fxb; report "fixture: bash steps in both CI files pass" "$(check_bash_steps "$tmp/fxb")"
+fxb; first "$tmp/fxb/azure-pipelines.yml" '          SH: bash' '          SH: dash'
+expect_fail "a missing Azure bash step is caught" "azure-pipelines.yml has no SH: bash step for scripts/test/test-ci-checks.sh" "$(check_bash_steps "$tmp/fxb")"
+fxb; first "$tmp/fxb/.github/workflows/checks.yml" '        run: sh scripts/test/test-pre-commit.sh' '        run: sh scripts/test/test-commit-msg.sh'
+first "$tmp/fxb/.github/workflows/checks.yml" '        run: sh scripts/test/test-pre-commit.sh' '        run: sh scripts/test/test-commit-msg.sh'
+expect_fail "a workflow without a bash pre-commit step is caught" ".github/workflows/checks.yml has no SH: bash step for scripts/test/test-pre-commit.sh" "$(check_bash_steps "$tmp/fxb")"
+fxb; edit_fx "$tmp/fxb/azure-pipelines.yml" 's/^          SH: bash$/          # SH: bash/'
+expect_fail "a commented-out SH: bash doesn't count" "azure-pipelines.yml has no SH: bash step" "$(check_bash_steps "$tmp/fxb")"
+fxb; printf '      - script: sh scripts/test/test-ci-checks.sh\n      - script: echo x\n        env:\n          SH: bash\n' > "$tmp/fxb/azure-pipelines.yml"
+expect_fail "SH: bash on another step doesn't count" "azure-pipelines.yml has no SH: bash step for scripts/test/test-ci-checks.sh" "$(check_bash_steps "$tmp/fxb")"
 
 echo
 echo "Results: $pass passed, $fail failed"

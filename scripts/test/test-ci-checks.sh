@@ -169,6 +169,9 @@ EOF
 make_stub git 128
 make_stub grep 2
 make_stub sed 2
+make_stub awk 2
+make_stub cut 1
+make_stub tr 1
 
 # run_ci <root> <base> <head> [<stubbed-cmd> <glob> [<nth>]]: run ci-checks.sh;
 # sets $rc and $out (stdout + stderr).
@@ -184,11 +187,14 @@ run_ci() {
 
 # expect_closed <needle> <description> [stubbed]: exit 1 naming <needle>, no pass
 # line, and (when a stub was used) proof the targeted call actually ran.
+# A needle starting with two spaces is a location line and must match a whole line.
+# Failing output is shown through od -c, so it can't drive the CI log (starter T-024).
+has() { case "$1" in '  '*) printf '%s\n' "$out" | grep -qxF -- "$1" ;; *) printf '%s' "$out" | grep -qF -- "$1" ;; esac; }
 expect_closed() {
-  if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF -- "$1" \
+  if [ "$rc" -eq 1 ] && has "$1" \
      && ! printf '%s' "$out" | grep -qF "all procedure gates passed" \
      && { [ $# -lt 3 ] || [ -e "$tmp/hit" ]; }
-  then ok "$2"; else bad "$2 (rc=$rc, out: $out)"; fi
+  then ok "$2"; else bad "$2 (rc=$rc)"; printf '%s' "$out" | od -c | sed -n '1,30p' >&2; fi
 }
 
 # A repo whose range touches file.txt and an authored docs file, so every git
@@ -232,7 +238,7 @@ run_ci "$r" "$o" "$h";      expect_closed "No merge base" "unrelated histories f
 # 14) Each git call that feeds a gate fails closed when git errors.
 # The range's commit list is just $h, so each gate's git calls happen once, in
 # order; the docs gate's `git log -1` is the 2nd one (the task-ID gate's is 1st).
-run_ci "$r" "$b" "$h" git 'diff *-U0';                        expect_closed "git diff $b..$h failed" "full diff error fails closed" stub
+run_ci "$r" "$b" "$h" git '*diff *-U0';                        expect_closed "git diff $b..$h failed" "full diff error fails closed" stub
 run_ci "$r" "$b" "$h" git '*--name-only --diff-filter=*'; expect_closed "git diff --name-only $b..$h failed" "changed-file list error fails closed" stub
 run_ci "$r" "$b" "$h" git '*diff *-U0 -- *';                   expect_closed "git diff $b..$h -- 'docs/x.md' failed" "per-file diff error fails closed" stub
 run_ci "$r" "$b" "$h" git 'log --format=%H *';                expect_closed "git log $b..$h failed" "commit list error fails closed" stub
@@ -243,7 +249,9 @@ run_ci "$r" "$b" "$h" git '*show *';                           expect_closed "gi
 
 # 15) Filters fail closed too: a broken sed can't empty the diff or a file list,
 #     and a broken placeholder grep can't read as "no placeholder".
-run_ci "$r" "$b" "$h" sed '-n /^+++/*';                       expect_closed "Filtering the diff of $b..$h failed" "diff filter error fails closed" stub
+run_ci "$r" "$b" "$h" awk '*diff --git*';                   expect_closed "Parsing the diff of $b..$h failed" "diff parser error fails closed" stub
+run_ci "$r" "$b" "$h" cut '-f2-';                             expect_closed "Filtering the diff of $b..$h failed" "diff filter error fails closed" stub
+run_ci "$r" "$b" "$h" tr '-c*';                               expect_closed "Sanitizing a file name failed" "sanitizer (tr) error fails closed" stub
 run_ci "$r" "$b" "$h" sed '-n /^"*' 1;                     expect_closed "Filtering the changed-file list failed" "docs file list filter error fails closed" stub
 run_ci "$r" "$b" "$h" sed '-n /^"*' 2;                     expect_closed "Filtering the files of $h failed" "per-commit docs filter error fails closed" stub
 run_ci "$r" "$b" "$h" grep '*insert*';                        expect_closed "Placeholder scanner error" "placeholder grep error fails closed" stub
@@ -370,14 +378,14 @@ name_case() {
   [ ! -e "$r/PWNED" ] || : > "$tmp/PWNED"   # surface a payload that ran in the repo
   rm -rf "$r"
 }
-name_case 'READM[E].md'  "placeholder in 'READM[E].md'"  "glob-like filename isn't expanded to an allowlisted file"
-name_case ':(top)x.md'   "placeholder in ':(top)x.md'"   "pathspec-magic filename is read literally"
-name_case "$(printf 'caf\303\251.md')" "placeholder in 'caf" "non-ASCII filename is checked"
-name_case 'a b.md'       "placeholder in 'a b.md'"       "filename with a space is checked whole"
+name_case 'READM[E].md'  "  READM?E?.md: line 1"  "glob-like filename isn't expanded to an allowlisted file"
+name_case ':(top)x.md'   "  ??top?x.md: line 1"   "pathspec-magic filename is read literally"
+name_case "$(printf 'caf\303\251.md')" "  caf??.md: line 1" "non-ASCII filename is checked"
+name_case 'a b.md'       "  a b.md: line 1"       "filename with a space is checked whole"
 name_case "$(printf 'a\tb.md')" "Unusual filename" "filename git must quote fails closed"
 # A filename is never code: under GNU sed, `#;e cmd;#` in an interpolated sed script
-# runs cmd. Expect the placeholder line reported verbatim and no PWNED file.
-name_case 'x#;e touch PWNED;#.md' "  x#;e touch PWNED;#.md: 1:+use [" "filename with sed syntax is reported, not run"
+# runs cmd. Expect its (sanitized) location reported and no PWNED file.
+name_case 'x#;e touch PWNED;#.md' "  x??e touch PWNED??.md: line 1" "filename with sed syntax is reported, not run"
 if [ ! -e PWNED ] && [ ! -e "$tmp/PWNED" ]; then ok "filename with sed syntax runs nothing"
 else bad "filename with sed syntax ran a command (PWNED exists)"; fi
 r=$(make_repo); mkdir -p "$r/docs"; echo d > "$r/docs/$(printf 'caf\303\251.md')"; commit_on "$r" "docs: odd name T-128"
@@ -400,6 +408,227 @@ mid=$(cd "$r" && git rev-parse HEAD)
 h=$(cd "$r" && git rev-parse HEAD)
 out=$( cd "$r" && "$SH" scripts/ci-checks.sh "$mid" "$h" 2>&1 ); rc=$?
 expect_closed "touches authored /docs/*" "moving a file out of /docs needs consensus"
+rm -rf "$r"
+
+# --- PR-controlled text never reaches the log; every added line is scanned (starter T-024)
+# Canaries stay harmless if a failing case prints them in CI (a warning annotation,
+# a notice), and failing output is shown through od -c so it can't drive the log.
+vso='##vso[task.logissue type=warning]T024-canary'
+ghc='::notice::T024-canary'
+t24_fail() { bad "$1 (rc=$rc)"; printf '%s' "$out" | od -c | sed -n '1,30p' >&2; }
+# t24 <description> <rc> <needle>...: exact rc, every needle in $out.
+t24() {
+  t24d=$1 t24rc=$2; shift 2; t24ok=1
+  [ "$rc" -eq "$t24rc" ] || t24ok=0
+  for t24n in "$@"; do has "$t24n" || t24ok=0; done
+  if [ "$t24ok" = 1 ]; then ok "$t24d"; else t24_fail "$t24d"; fi
+}
+# absent <description> <needle>...: no needle in $out.
+absent() {
+  t24d=$1; shift; t24ok=1
+  for t24n in "$@"; do ! printf '%s' "$out" | grep -qF -- "$t24n" || t24ok=0; done
+  if [ "$t24ok" = 1 ]; then ok "$t24d"; else t24_fail "$t24d"; fi
+}
+# ci_on <root> [cwd]: run ci-checks.sh over $b..$h (from <cwd> when given); sets $rc, $out.
+ci_on() { out=$( cd "${2:-$1}" && "$SH" "$1/scripts/ci-checks.sh" "$b" "$h" 2>&1 ); rc=$?; }
+
+# 26) A line whose content starts with "++" is scanned (the old /^+++/d filter dropped it).
+r=$(make_repo); printf 'ok\n++ %s\n' "$ph" > "$r/p.txt"; commit_on "$r" "chore: plusplus ph T-140"; ci_on "$r"
+t24 "a ++-prefixed placeholder is caught, with its line" 1 "placeholder in 'p.txt'" "  p.txt: line 2"; rm -rf "$r"
+r=$(make_repo); printf '++ %s\n' "$aws" > "$r/s.txt"; commit_on "$r" "chore: plusplus secret T-141"; ci_on "$r"
+t24 "a ++-prefixed secret is caught" 1 "Possible secret detected"
+absent "...and never echoed" "AKIA"; rm -rf "$r"
+# Content that looks like diff syntax is only content: a line "diff --git a b" doesn't
+# restart the parser and "@@ -1 +1 @@" isn't a hunk header, so the hit is on line 3.
+r=$(make_repo); printf 'diff --git a b\n@@ -1 +1 @@\n%s\n' "$ph" > "$r/d.txt"; commit_on "$r" "chore: diff-like content T-160"; ci_on "$r"
+t24 "content lines that look like diff --git and @@ are counted as lines" 1 "placeholder in 'd.txt'" "  d.txt: line 3"; rm -rf "$r"
+
+# 27) Line numbers are new-file line numbers: two hunks, replacements (no '-' line is
+#     counted, '+c' without ',d'), a '\ No newline' before the hit, a final line with no
+#     newline, and CRLF content.
+r=$(make_repo); printf 'l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\n' > "$r/m.txt"; commit_on "$r" "chore: base T-142"
+printf 'l1\n%s\nl3\nl4\nl5\nl6\nl7\n%s\nl9\n' "$ph" "$ph" > "$r/m.txt"; commit_on "$r" "chore: two hunks T-142"
+b=$(cd "$r" && git rev-parse HEAD~1); ci_on "$r"
+t24 "hits in two replaced hunks report lines 2 and 8" 1 "  m.txt: line 2" "  m.txt: line 8"
+absent "...and no other line" "m.txt: line 1" "m.txt: line 3" "m.txt: line 9"; rm -rf "$r"
+r=$(make_repo); printf 'a' > "$r/n.txt"; commit_on "$r" "chore: base T-143"
+printf 'a\n%s\n' "$ph" > "$r/n.txt"; commit_on "$r" "chore: grow T-143"; b=$(cd "$r" && git rev-parse HEAD~1); ci_on "$r"
+t24 "a '\\ No newline' line before the hit isn't counted" 1 "  n.txt: line 2"; rm -rf "$r"
+r=$(make_repo); printf 'x\n%s' "$ph" > "$r/e.txt"; commit_on "$r" "chore: no final newline T-144"; ci_on "$r"
+t24 "a final line with no newline gets its line number" 1 "  e.txt: line 2"; rm -rf "$r"
+r=$(make_repo); printf 'a\r\n%s\r\n' "$ph" > "$r/w.txt"; commit_on "$r" "chore: crlf T-145"; ci_on "$r"
+t24 "a CRLF placeholder gets its line number" 1 "  w.txt: line 2"; rm -rf "$r"
+r=$(make_repo); printf '%s\n' "$ph" > "$r/f1.txt"; printf 'ok\n%s\n' "$ph" > "$r/f2.txt"; commit_on "$r" "chore: two files T-161"; ci_on "$r"
+t24 "two files in one diff each report their own line" 1 "placeholder in 'f1.txt'" "  f1.txt: line 1" "placeholder in 'f2.txt'" "  f2.txt: line 2"
+absent "...and neither borrows the other's" "f1.txt: line 2" "f2.txt: line 1"; rm -rf "$r"
+
+# 28) Content is never echoed: canaries in a placeholder line, a file name and a commit
+#     subject come out sanitized, and the raw text never appears.
+r=$(make_repo); printf '%s %s %s\n' "$ph" "$vso" "$ghc" > "$r/c.txt"; commit_on "$r" "chore: canary line T-146"; ci_on "$r"
+t24 "a placeholder line with log commands reports only its location" 1 "  c.txt: line 1"
+absent "...and never its content" "T024-canary" "##vso[" "::notice::" "use ["; rm -rf "$r"
+r=$(make_repo); printf '%s\n' "$ph" > "$r/##vso[x]::y.md"; commit_on "$r" "chore: canary name T-147"; ci_on "$r"
+t24 "a file name with log commands is sanitized" 1 "placeholder in '??vso?x???y.md'" "  ??vso?x???y.md: line 1"
+absent "...and never printed raw" "##vso[" "]::y"; rm -rf "$r"
+r=$(make_repo); echo x >> "$r/file.txt"; commit_on "$r" "chore: $vso $ghc"; ci_on "$r"
+if [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -qxF "CI-CHECK FAIL: Commit $h is missing a Task ID (T-NNN). First line: chore? ??vso?task.logissue type?warning?T024-canary ??notice??T024-canary"
+then ok "a commit subject with log commands is sanitized, exactly"; else t24_fail "a commit subject with log commands is sanitized, exactly"; fi
+absent "...and never printed raw" "##vso[" "::notice::"; rm -rf "$r"
+long=$(printf 'x%.0s' $(seq 1 300)); want=$(printf 'x%.0s' $(seq 1 200))
+r=$(make_repo); echo x >> "$r/file.txt"; commit_on "$r" "$long"; ci_on "$r"
+if [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -qxF "CI-CHECK FAIL: Commit $h is missing a Task ID (T-NNN). First line: $want..."
+then ok "a 300-byte subject is cut to 200 bytes plus ..."; else t24_fail "a 300-byte subject is cut to 200 bytes plus ..."; fi
+rm -rf "$r"
+
+# 29) The FAIL line comes first, then at most 20 locations and a count of the rest.
+r=$(make_repo); i=0; : > "$r/k.txt"; while [ "$i" -lt 25 ]; do printf '%s\n' "$ph" >> "$r/k.txt"; i=$((i + 1)); done
+commit_on "$r" "chore: many T-148"; ci_on "$r"
+n=$(printf '%s\n' "$out" | grep -c '^  k\.txt: line ')
+fl=$(printf '%s\n' "$out" | grep -n 'Unreplaced' | cut -d: -f1); ll=$(printf '%s\n' "$out" | grep -n '^  k\.txt: line 1$' | cut -d: -f1)
+if [ "$rc" -eq 1 ] && [ "$n" -eq 20 ] && printf '%s\n' "$out" | grep -qx '  ...and 5 more' \
+   && printf '%s\n' "$out" | grep -qx '  k.txt: line 20' && [ -n "$fl" ] && [ -n "$ll" ] && [ "$fl" -lt "$ll" ]
+then ok "25 hits print the FAIL line, then exactly 20 locations and '...and 5 more'"
+else t24_fail "25 hits print the FAIL line, then exactly 20 locations and '...and 5 more' (n=$n)"; fi
+rm -rf "$r"
+
+# 30) Type changes are scanned: a file turned into a symlink whose target holds a
+#     placeholder or a secret. A gitlink carries no content and passes.
+r=$(make_repo); echo l > "$r/l.txt"; commit_on "$r" "chore: base T-149"
+rm "$r/l.txt"; ln -s "$ph" "$r/l.txt"; commit_on "$r" "chore: symlink T-149"; b=$(cd "$r" && git rev-parse HEAD~1)
+st=$(cd "$r" && git diff --name-status "$b" "$h")
+case "$st" in T*) ;; *) bad "symlink precondition: name-status should be T (got: $st)" ;; esac
+ci_on "$r"; t24 "a placeholder in a symlink type change is caught" 1 "placeholder in 'l.txt'" "  l.txt: line 1"; rm -rf "$r"
+r=$(make_repo); echo l > "$r/l.txt"; commit_on "$r" "chore: base T-150"
+rm "$r/l.txt"; ln -s "$aws" "$r/l.txt"; commit_on "$r" "chore: symlink T-150"; b=$(cd "$r" && git rev-parse HEAD~1)
+ci_on "$r"; t24 "a secret in a symlink type change is caught" 1 "Possible secret detected"; rm -rf "$r"
+# gitlink_repo: make_repo, then turn g.txt into a gitlink in a direct commit (git add -A
+# would stage the gitlink's removal). Sets $r, $b, $h.
+gl=1111111111111111111111111111111111111111
+gitlink_repo() {
+  r=$(make_repo); echo g > "$r/g.txt"; commit_on "$r" "chore: base $1"
+  ( cd "$r" && git rm -q --cached g.txt && rm g.txt && git update-index --add --cacheinfo "160000,$gl,g.txt" \
+      && git commit -qm "chore: gitlink $1" )
+  b=$(cd "$r" && git rev-parse HEAD~1); h=$(cd "$r" && git rev-parse HEAD)
+}
+gitlink_repo T-151
+if ! ( cd "$r" && git diff "$b" "$h" ) | grep -q '^+Subproject commit'; then bad "gitlink precondition: diff should show Subproject commit"; fi
+err=$( cd "$r" && "$SH" scripts/ci-checks.sh "$b" "$h" 2>&1 >/dev/null ); rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$err" ]; then ok "a gitlink passes with empty stderr"; else out=$err; t24_fail "a gitlink passes with empty stderr"; fi
+rm -rf "$r"
+
+# 31) Git config can't change what's scanned. Each case first proves the setting really
+#     changes a plain diff, so it can't pass vacuously.
+ESC=$(printf '\033')
+r=$(make_repo); printf '%s\n' "$ph" > "$r/p.txt"; printf '%s\n' "$aws" > "$r/s.txt"; ( cd "$r" && git config color.ui always )
+commit_on "$r" "chore: colour T-152"
+( cd "$r" && git diff "$b" "$h" ) | grep -q "$ESC" || bad "color.ui precondition: plain git diff should emit ESC"
+ci_on "$r"; t24 "color.ui=always hides neither a placeholder nor a secret" 1 "placeholder in 'p.txt'" "Possible secret detected"; rm -rf "$r"
+gitlink_repo T-153; printf '%s\n' "$ph" > "$r/p.txt"; ( cd "$r" && git add p.txt && git commit -qm "chore: ph T-153" && git config diff.submodule log )
+b=$(cd "$r" && git rev-list --max-parents=0 HEAD); h=$(cd "$r" && git rev-parse HEAD)
+( cd "$r" && git diff "$b" "$h" ) | grep -q '^Submodule' || bad "diff.submodule precondition: plain git diff should print Submodule"
+ci_on "$r"; t24 "diff.submodule=log neither breaks the parser nor hides a placeholder" 1 "placeholder in 'p.txt'"; rm -rf "$r"
+r=$(make_repo); mkdir -p "$r/sub"; echo s > "$r/sub/s.txt"; printf '%s\n' "$ph" > "$r/p.txt"; ( cd "$r" && git config diff.relative true )
+commit_on "$r" "chore: relative T-154"
+rel=$(cd "$r/sub" && git diff --name-only "$b" "$h") || rel='(git failed)'
+[ "$rel" = "s.txt" ] || bad "diff.relative precondition: a plain diff from sub/ should list only s.txt (got: $rel)"
+ci_on "$r" "$r/sub"; t24 "diff.relative=true run from a subdirectory still scans the whole tree" 1 "placeholder in 'p.txt'"; rm -rf "$r"
+r=$(make_repo); printf 'a\n\nb\n' > "$r/z.txt"; commit_on "$r" "chore: base T-155"
+printf 'a\n\n%s\n' "$ph" > "$r/z.txt"; ( cd "$r" && git config diff.suppressBlankEmpty true ); commit_on "$r" "chore: ph T-155"
+b=$(cd "$r" && git rev-parse HEAD~1)
+( cd "$r" && GIT_DIFF_OPTS=-u3 git diff "$b" "$h" -U0 ) | grep -q '^ a$' || bad "GIT_DIFF_OPTS precondition: -u3 should override -U0"
+( cd "$r" && git diff "$b" "$h" -U1 ) | grep -qx '' || bad "diff.suppressBlankEmpty precondition: a context diff should print a bare empty line"
+out=$( cd "$r" && GIT_DIFF_OPTS=-u3 "$SH" scripts/ci-checks.sh "$b" "$h" 2>&1 ); rc=$?
+t24 "GIT_DIFF_OPTS and diff.suppressBlankEmpty can't change the diff" 1 "  z.txt: line 3"; rm -rf "$r"
+# All of them at once, on a range with a gitlink, a blank context line and a file in
+# sub/, run from sub/: a clean change still passes.
+# (Explicit git add: add -A would stage the gitlink's removal.)
+gitlink_repo T-156; mkdir -p "$r/sub"; echo s > "$r/sub/s.txt"; printf 'a\n\nb\n' > "$r/z.txt"
+( cd "$r" && git add sub/s.txt z.txt && git commit -qm "chore: base T-156" )
+printf 'a\n\nc\n' > "$r/z.txt"; echo t >> "$r/sub/s.txt"
+( cd "$r" && git config color.ui always && git config diff.relative true && git config diff.submodule log \
+    && git config diff.suppressBlankEmpty true && git add sub/s.txt z.txt && git commit -qm "chore: clean T-156" )
+b=$(cd "$r" && git rev-list --max-parents=0 HEAD); h=$(cd "$r" && git rev-parse HEAD)
+( cd "$r" && git diff "$b" "$h" ) | grep -q '^Submodule' || bad "all-configs precondition: the range should hold a gitlink"
+out=$( cd "$r/sub" && GIT_DIFF_OPTS=-u3 "$SH" "$r/scripts/ci-checks.sh" "$b" "$h" 2>&1 ); rc=$?
+t24 "...and a clean change still passes under all of them, run from sub/" 0 "all procedure gates passed"; rm -rf "$r"
+
+# 31c) Git's own warnings carry a PR's bytes (a .gitattributes attribute name, a
+#      .gitmodules submodule name): a green run must print none of them.
+gitlink_repo T-162
+printf '[submodule "%s"]\n\tpath = -x\n\turl = ./x\n' "$vso" > "$r/.gitmodules"
+printf 'file.txt %s\n* %s[2J\n' "$vso" "$ESC" > "$r/.gitattributes"; echo more >> "$r/file.txt"
+( cd "$r" && git add .gitmodules .gitattributes file.txt 2>/dev/null && git commit -qm "chore: hostile git metadata T-162" 2>/dev/null )
+b=$(cd "$r" && git rev-list --max-parents=0 HEAD); h=$(cd "$r" && git rev-parse HEAD)
+gw=$(cd "$r" && git diff "$b" "$h" 2>&1 >/dev/null)
+case "$gw" in *"##vso["*) ;; *) bad "git-warning precondition: a plain git diff should warn with ##vso[" ;; esac
+ci_on "$r"
+t24 "git's warnings about a PR's .gitattributes and .gitmodules never reach the log" 0 "all procedure gates passed"
+absent "...no canary, ##vso[ or ESC in stdout or stderr" "T024-canary" "##vso[" "$ESC"; rm -rf "$r"
+
+# 31b) The script runs from the top of the work tree, failing closed if it can't find
+#      it, and a relative CI_PLACEHOLDER_ALLOW still names the caller's file.
+r=$(make_repo); printf '%s\n' "$ph" > "$r/x.md"; mkdir -p "$r/sub"; echo s > "$r/sub/s.txt"
+printf 'x.md\n' > "$r/sub/allow-x"; printf '# none\n' > "$r/sub/allow-none"; commit_on "$r" "chore: relative allow T-159"
+out=$( cd "$r/sub" && CI_PLACEHOLDER_ALLOW=allow-x "$SH" ../scripts/ci-checks.sh "$b" "$h" 2>&1 ); rc=$?
+t24 "a relative CI_PLACEHOLDER_ALLOW from a subdirectory still allowlists its entry" 0 "all procedure gates passed"
+out=$( cd "$r/sub" && CI_PLACEHOLDER_ALLOW=allow-none "$SH" ../scripts/ci-checks.sh "$b" "$h" 2>&1 ); rc=$?
+t24 "...and one without the entry still fails" 1 "placeholder in 'x.md'"
+run_ci "$r" "$b" "$h" git 'rev-parse --show-toplevel'
+expect_closed "Finding the top of the work tree failed" "a rev-parse --show-toplevel error fails closed" stub
+rm -rf "$r"
+
+# 32) The block on its own: the parser exits 2 on what it doesn't recognise, and se_safe
+#     maps every byte. Sourced from the script under test, like the PR gate runs it.
+blk="$tmp/safe-echo.sh"
+sed -n '/^# BEGIN safe-echo/,/^# END safe-echo$/p' "$sut" > "$blk"
+[ -s "$blk" ] || bad "the safe-echo block was extracted from ci-checks.sh"
+# The single-quoted scripts below expand $1 and $2 in the child shell, not here.
+# shellcheck disable=SC2016
+parse2() {  # parse2 <description> <diff text>: se_added must exit 2 with empty stdout
+  po=$("$SH" -c '. "$1"; printf "%s\n" "$2" | se_added' sh "$blk" "$2"); prc=$?
+  if [ "$prc" -eq 2 ] && [ -z "$po" ]; then ok "$1"; else bad "$1 (rc=$prc)"; printf '%s' "$po" | od -c | sed -n '1,10p' >&2; fi
+}
+parse2 "parser: an unknown line in a hunk exits 2" "$(printf 'diff --git a/x b/x\n@@ -1 +1 @@\n?weird')"
+parse2 "parser: a line before the first diff --git exits 2" "$(printf 'junk\ndiff --git a/x b/x')"
+parse2 "parser: a malformed hunk header exits 2" "$(printf 'diff --git a/x b/x\n@@ -1 +x1 @@\n+a')"
+parse2 "parser: a backslash line other than the no-newline marker exits 2" "$(printf 'diff --git a/x b/x\n@@ -1 +1 @@\n\\ something else')"
+# shellcheck disable=SC2016
+bytes=$("$SH" -c '
+  . "$1"; LC_ALL=C; export LC_ALL; bad=""; i=1
+  while [ "$i" -le 255 ]; do
+    b=$(printf "\\$(printf %03o "$i")x"); b=${b%x}
+    case "$b" in [A-Za-z0-9._/\ -]) want=$b ;; *) want="?" ;; esac
+    got=$(se_safe "$b") || { bad="$bad $i(rc)"; i=$((i + 1)); continue; }
+    [ "$got" = "$want" ] || bad="$bad $i"
+    i=$((i + 1))
+  done
+  printf "%s" "$bad"' sh "$blk")
+if [ -z "$bytes" ]; then ok "se_safe maps every byte 1-255 to itself or ?"; else bad "se_safe maps every byte 1-255 to itself or ? (wrong:$bytes)"; fi
+# shellcheck disable=SC2016
+sv=$("$SH" -c '. "$1"; se_safe "$(printf "a\nb\rc\033[2J%%0A  ::x:: ##vso[a]b")"' sh "$blk")
+if [ "$sv" = "a?b?c??2J?0A  ??x?? ??vso?a?b" ]; then ok "se_safe: LF, CR, ESC, %0A, ::, ##vso[ all become ? on one line"
+else bad "se_safe: LF, CR, ESC, %0A, ::, ##vso[ all become ? on one line (got: $(printf '%s' "$sv" | od -c | head -3))"; fi
+# se_v <value> [VAR=value]: se_safe <value> from the extracted block, in $SH.
+# shellcheck disable=SC2016
+se_v() { env ${2:+"$2"} "$SH" -c '. "$1"; se_safe "$2"' sh "$blk" "$1"; }
+# se_is <description> <got> <want>
+se_is() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (got: $(printf '%s' "$2" | od -c | head -3))"; fi; }
+se_is "se_safe: empty in, empty out" "$(se_v '')" ''
+x200=$(printf 'y%.0s' $(seq 1 200))
+se_is "se_safe: 200 bytes are not cut" "$(se_v "$x200")" "$x200"
+se_is "se_safe: 201 bytes become 200 plus ..." "$(se_v "${x200}z")" "$x200..."
+if [ "$(uname)" = Darwin ]; then
+  se_is "se_safe under a UTF-8 locale still works byte by byte" "$(se_v "$(printf 'caf\303\251')" LC_ALL=C.UTF-8)" "caf??"
+fi
+
+# 33) Fail closed in the new code, and the location pass can't change a decision.
+r=$(make_repo); n201=$(printf 'n%.0s' $(seq 1 197)).txt; printf '%s\n' "$ph" > "$r/$n201"; commit_on "$r" "chore: long name T-157"
+run_ci "$r" "$b" "$h" cut '-c1-200'; expect_closed "Sanitizing a file name failed" "sanitizer (cut) error on a 201-byte name fails closed" stub
+rm -rf "$r"
+r=$(make_repo); printf '%s\n' "$ph" > "$r/p.txt"; commit_on "$r" "chore: ph T-158"
+run_ci "$r" "$b" "$h" grep '*-E -- ^*'
+if [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "placeholder in 'p.txt'" && [ -e "$tmp/hit" ]; then ok "a failing location pass still fails the placeholder gate"
+else t24_fail "a failing location pass still fails the placeholder gate"; fi
 rm -rf "$r"
 
 echo
