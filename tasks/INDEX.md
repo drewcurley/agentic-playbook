@@ -8,7 +8,7 @@
 
 | ID | Title | Owner | Tier | State | Branch | PR |
 |----|-------|-------|------|-------|--------|----|
-| [T-003](./T-003.md) | Preserve Runewell design and original text game | review-coordinator | — | blocked | chore/runewell-design-and-originals | — |
+| _none_ | | | | | | |
 
 ## Backlog — Tier 1 (blocks feature work)
 
@@ -43,7 +43,7 @@
 
 | ID | Title | Owner | Tier | Branch | PR | Review |
 |----|-------|-------|------|--------|----|--------|
-| _none yet_ | | | | | | |
+| [T-003](./T-003.md) | Preserve Runewell design and original text game | review-coordinator | — | chore/runewell-design-and-originals | — | [review](../docs/reviews/chore-runewell-design-and-originals/final.md) |
 
 ## Cancelled / Superseded
 

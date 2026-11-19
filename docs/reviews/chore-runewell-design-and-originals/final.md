@@ -53,7 +53,7 @@ Plan: preserve the three design documents and seven originals under docs/game-de
 - Staged Git blob integrity and added Markdown links: passed, independently confirmed by specialists.
 - Normal pre-commit and commit-message hooks passed for c2380d4; actual-commit procedure checks passed from base 3ecb1b6e3e5ffaefe606f16185d436ce52968e0a.
 - A whitespace check on authored documentation/metadata passed. The preserved historical Python files contain original trailing whitespace; it was retained to preserve their exact upload bytes.
-- Push attempted with the existing platform GitHub access and no force. GitHub rejected it with HTTP 403 and repository permission denied. A subsequent read-only Git operation still succeeded. Remote branch creation and local/remote SHA equality remain unverified; the task is blocked on write access. No hosted CI or merge success is claimed.
+- Initial push was rejected with HTTP 403; after the creator updated access and requested retry, the branch pushed successfully without force. Remote refs/heads/chore/runewell-design-and-originals matched local commit 2cf4a6d27cdbe81b34440899fa3dbab663c1d6d5. The access blocker is resolved. No hosted CI or merge success is claimed.
 - Archived Python was read as text, not imported or executed. No 3D runtime exists to validate in this task.
 
 ## Regression safety
