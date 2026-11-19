@@ -8,7 +8,7 @@
 
 | ID | Title | Owner | Tier | State | Branch | PR |
 |----|-------|-------|------|-------|--------|----|
-| _none_ | | | | | | |
+| [T-003](./T-003.md) | Preserve Runewell design and original text game | review-coordinator | — | in-progress | chore/runewell-design-and-originals | — |
 
 ## Backlog — Tier 1 (blocks feature work)
 
@@ -22,7 +22,7 @@
 | [T-001.5](./T-001.5.md) | Write `api.md` | backend-engineer | proposed |
 | [T-001.4](./T-001.4.md) | Write `data-model.md` | data-engineer | proposed |
 | [T-001.6](./T-001.6.md) | Write `stack.md` | architect | proposed |
-| [T-001.8](./T-001.8.md) | Write `testing.md` | test-engineer | proposed |
+| [T-001.8](./T-001.8.md) | Write `testing.md` | sdet | proposed |
 | [T-001.9](./T-001.9.md) | Write `deployment.md` | devops | proposed |
 | [T-001.11](./T-001.11.md) | Set up `decisions/` + Architectural Decision Record 0001 | architect | proposed |
 | [T-001.12](./T-001.12.md) | Set up `reviews/` skeleton | review-coordinator | proposed |

@@ -1,0 +1,37 @@
+[
+  {
+    "file": "character.py",
+    "sha256": "3750a2f748f6e7d85481649da25f8b067334e17536641fa9a3526f356d658d74",
+    "bytes": 38541
+  },
+  {
+    "file": "exploration.py",
+    "sha256": "14699ce66e6f36c020ae653b5c3de05002a2debad5d6051fb4827e735a466f72",
+    "bytes": 53991
+  },
+  {
+    "file": "main.py",
+    "sha256": "066c46486dbe1922f91eec16624097c56807706a9e268314fa225b25861a6f9f",
+    "bytes": 7618
+  },
+  {
+    "file": "monsters.py",
+    "sha256": "5f5b4f5b7461810110724f610e06fe242e60343340a35f3b60e4708c750eaf78",
+    "bytes": 4208
+  },
+  {
+    "file": "story.py",
+    "sha256": "56f64d8cba145754ab085ca49f64117c8c0af0b6938630e49b6de66f92c0907c",
+    "bytes": 40498
+  },
+  {
+    "file": "test.py",
+    "sha256": "d31f810f285549519ae2f3822b960b695e49eb4a883d4ebe736804e783dd8b4d",
+    "bytes": 2435
+  },
+  {
+    "file": "test_character.py",
+    "sha256": "7456f84c38d99d6edece6e92299cf575bb49945acfb3f43858b4d52ffa02d729",
+    "bytes": 2385
+  }
+]

@@ -1,5 +1,11 @@
 # Agentic Starter
 
+## Runewell game project
+
+The [Runewell design and original text-game archive](docs/game-design/README.md) contains the spec sheet/GDD, source story reference, and seven unchanged original Python files. The creator selected **A — Contain the breach** and **R1 — Checkpoint anchors** for a **2–4 hour** game. Read those materials before working on Runewell; story questions and major changes require the creator's decision unless explicitly delegated.
+
+The remaining README describes the inherited Agentic Starter tooling.
+
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/drewcurley)
 
 A drop-in starter that standardizes how AI coding agents (Claude Code, Codex, Cursor, etc.) collaborate on a project. Works two ways:

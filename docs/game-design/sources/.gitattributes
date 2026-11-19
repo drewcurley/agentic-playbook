@@ -1,0 +1,2 @@
+# Preserve the original upload bytes, including CRLF line endings.
+*.py -text
