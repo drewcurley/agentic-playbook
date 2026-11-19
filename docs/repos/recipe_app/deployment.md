@@ -40,7 +40,7 @@ Rollback procedure and verification are UNKNOWN — needs human confirmation.
 
 ## Hostinger constraint
 
-The MVP is static because shared hosting does not provide the Node.js runtime required by a normal Next.js server deployment. A Hostinger VPS would be required if a server-rendered Node.js application is introduced.
+The MVP targets static assets for shared hosting. Whether the selected Hostinger plan provides a Node.js runtime is UNKNOWN — needs human confirmation; a VPS or another Node-capable host would be required if a server-rendered Node.js application is introduced.
 
 <!-- update-this-doc-when: package.json, vite.config.*, .github/workflows/recipe-app-checks.yml, deployment configuration, hosting runbooks -->
 

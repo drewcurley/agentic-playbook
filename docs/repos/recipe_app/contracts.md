@@ -35,7 +35,7 @@ No service-role, database-password, or OAuth client secret may be a Vite client 
 - Session refresh and logout
 - OAuth redirect allowlist: `http://localhost:5173`, preview URL UNKNOWN, and `https://recipe.dillonlsmith.com`
 - Account linking behavior: UNKNOWN — needs human confirmation
-- Signup profile data: the UI sends first name as Supabase `user_metadata.first_name`; profile-row persistence is not implemented or verified.
+- Signup profile data: the UI sends first name as Supabase `user_metadata.first_name`; the `handle_new_user_profile` trigger persists it to `profiles.display_name`.
 
 ## Storage contract
 
