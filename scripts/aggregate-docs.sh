@@ -60,7 +60,14 @@ fi
 
 # HEAD sha of a repo's /docs subtree (changes only when docs change), or "" if absent.
 docs_sha() {
-  ( cd "$1" 2>/dev/null && git rev-parse HEAD:docs 2>/dev/null ) || true
+  # Projects may be subdirectories of the workspace-root repository rather than
+  # independent Git worktrees. Resolve the docs tree from the workspace root in
+  # that layout, while retaining support for a standalone project repository.
+  if [ -d "$workspace_root/$1/.git" ]; then
+    ( cd "$workspace_root/$1" 2>/dev/null && git rev-parse HEAD:docs 2>/dev/null ) || true
+  else
+    ( cd "$workspace_root" 2>/dev/null && git rev-parse "HEAD:$1/docs" 2>/dev/null ) || true
+  fi
 }
 
 drift=0      # repos whose source docs are ahead of the rollup
@@ -82,7 +89,7 @@ for dir in $repos; do
     yel "  skip: $dir has no /docs yet (run its docs bootstrap)."
     missing=$((missing + 1)); continue
   fi
-  src_sha=$(docs_sha "$repo")
+  src_sha=$(docs_sha "$dir")
   mirror="$rollup_dir/$dir"
   have_sha=""
   [ -f "$mirror/$stamp" ] && have_sha=$(cat "$mirror/$stamp")
