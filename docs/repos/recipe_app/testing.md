@@ -35,6 +35,14 @@ The broader journey lists below are planned coverage, not completed coverage.
 
 ## CI checks
 
+The PR procedure gate is invoked as:
+
+```sh
+CI_PROJECT_PREFIX=recipe_app \
+CI_PLACEHOLDER_ALLOW=recipe_app/.placeholder-allow \
+sh recipe_app/scripts/ci-pr-checks.sh <target-sha> <head-sha>
+```
+
 The root workflow runs procedure checks plus `npm ci`, `npm run typecheck`,
 `npm test`, and `npm run build` from `recipe_app/`. There are currently no
 configured coverage thresholds/reports, formatting or lint checks, live Supabase
